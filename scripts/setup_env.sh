@@ -18,7 +18,8 @@ git -C "$ROOT/third_party/umi-robot-policy" submodule update --init deps/umi-dat
 bash "$ROOT/scripts/apply_patches.sh"
 
 cd "$ROOT/third_party/rlinf"
-bash requirements/install.sh embodied --model gr00t_n1d7 --env maniskill_libero --venv "$VENV"
+# --no-root: system packages (cmake, libgl, ...) are already present on this host; sys_deps.sh needs sudo.
+bash requirements/install.sh embodied --model gr00t_n1d7 --env maniskill_libero --venv "$VENV" --no-root
 
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
