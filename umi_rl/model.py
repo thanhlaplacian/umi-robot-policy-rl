@@ -18,6 +18,8 @@ from omegaconf import DictConfig, OmegaConf
 from umi_rl import compat, converters, embodiment
 
 MODEL_TYPE = "gr00t_n1d7_umi"
+# scalar stats from the fork's training forward that are worth a logger line
+_SFT_LOGGED_STATS = {"action_loss", "progress_loss", "optimality_loss", "advantage_weight_sum", "flow_loss", "wm_loss", "flare_loss"}
 
 
 def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
@@ -124,6 +126,16 @@ def _model_class():
             with torch.inference_mode():
                 model_pred = self.get_action(normalized_input)
             return model_pred["action_pred"].float()
+
+        def forward(self, forward_type=None, **kwargs):
+            from rlinf.models.embodiment.base_policy import ForwardType
+
+            if forward_type is None or forward_type == ForwardType.DEFAULT:
+                return super().forward(**kwargs)
+            if forward_type == ForwardType.SFT:
+                loss = self.sft_forward(kwargs["data"])
+                return {"loss": loss, **{k: v for k, v in self.last_sft_stats.items() if k in _SFT_LOGGED_STATS}}
+            raise NotImplementedError(f"forward_type {forward_type} not supported by gr00t_n1d7_umi")
 
         def sft_forward(self, data, **kwargs):
             """Supervised / offline loss on a batch from ``umi_rl.offline.data`` (RLinf SFT hook).
