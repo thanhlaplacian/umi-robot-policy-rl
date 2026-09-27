@@ -72,11 +72,22 @@ How to run: `ray start --head --port=6379 --dashboard-host=127.0.0.1 --dashboard
 (the venv's Ray), then `bash scripts/run_offline_sft.sh umi_sft_smoke`; stop a run with
 `scripts/kill_offline_sft.sh`.
 
+## Holdout check of the exported checkpoint
+
+Fork's `open_loop_eval_eef.py` on `data/dataset/holdout/TELE2-rebot-VAL2.json` (39 episodes,
+994 chunks per arm), run in the SFT container:
+
+| Checkpoint | ADE pos R / L (mm) | ADE rot R / L (deg) |
+|---|---|---|
+| base `UMICore-v0.16.9/checkpoint-3000` | 30.33 / 22.27 | 5.91 / 4.07 |
+| RLinf SFT 20 steps, exported | 29.70 / 21.64 | 5.82 / 4.00 |
+
+No regression; the small gain is consistent with 20 more steps on a rebot training set and is
+within run-to-run noise. Logs: `/home/thanh/rlinf-runs/logs/umi-rl/ole_{base,step20}.log`.
+
 ## Next
 
-1. Score the exported step-20 checkpoint and the base with the fork's open-loop holdout eval
-   (TELE2-rebot VAL2) to confirm the RLinf loop does not regress the policy.
-2. Increment 2: `data.advantage_weight_suboptimal` -> per-sample weights in `sft_forward`
+1. Increment 2: `data.advantage_weight_suboptimal` -> per-sample weights in `sft_forward`
    (`loss = sum(w * l) / sum(w)`), logged `advantage_weight_sum`; run A/B (weight 1.0 vs 0.3 vs
    0.0) on the labelled mix for 5k steps each, compare holdout ADE and rollout on the rebot.
 4. Label coverage: the newest rebot/UMI2 sets are unlabelled; scoring them needs the fork's
