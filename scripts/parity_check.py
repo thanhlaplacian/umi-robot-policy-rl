@@ -19,8 +19,10 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+# The fork builds Qwen3VLProcessor from the hub id "nvidia/Cosmos-Reason2-2B"; transformers 4.57 then
+# queries the hub API even for a cached model, which HF_HUB_OFFLINE turns into an error. Point the
+# cache at the shared snapshot instead of forcing offline mode.
+# (the default ~/.cache/huggingface/hub already holds the Cosmos-Reason2-2B snapshot and is writable)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -35,9 +37,15 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--video-backend", default="pyav")
     ap.add_argument("--out", default=None, help="write the numbers as json")
+    ap.add_argument("--bf16-states", action="store_true",
+                    help="round the fork's raw states to bf16 first, mirroring RLinf's train/infer parity hack")
+    ap.add_argument("--seed-spread", action="store_true",
+                    help="also run the fork with seed+1 to show the noise-to-noise spread as a scale reference")
     a = ap.parse_args()
     steps = [int(s) for s in a.steps.split(",")]
 
+    import logging
+    logging.getLogger("huggingface_hub").setLevel(logging.CRITICAL)  # shared cache is read-only: .no_exist spam
     import umi_rl.model  # registers gr00t_n1d7_umi + converters
     from umi_rl import converters
     from rlinf.models import get_model
@@ -72,7 +80,10 @@ def main():
     for v in views:
         fork_obs["video"][v] = np.stack([np.asarray(dp.images[v]) for dp in dps]).astype(np.uint8)  # (B,T,H,W,3)
     for k, _ in converters.STATE_KEYS:
-        fork_obs["state"][k] = np.stack([np.asarray(dp.states[k], dtype=np.float32) for dp in dps])  # (B,T,D)
+        st = np.stack([np.asarray(dp.states[k], dtype=np.float32) for dp in dps])  # (B,T,D)
+        if a.bf16_states:
+            st = torch.from_numpy(st).to(torch.bfloat16).float().numpy()
+        fork_obs["state"][k] = st
     fork_obs["language"][converters.LANGUAGE_KEY] = [[dp.text] for dp in dps]
     gt = {k: np.stack([np.asarray(dp.actions[k], dtype=np.float32) for dp in dps]) for k, _ in converters.ACTION_KEYS}
 
@@ -87,6 +98,10 @@ def main():
     # ---- fork path
     torch.manual_seed(a.seed)
     fork_action, _ = policy.get_action(fork_obs)
+    fork_action2 = None
+    if a.seed_spread:
+        torch.manual_seed(a.seed + 1)
+        fork_action2, _ = policy.get_action(fork_obs)
     # ---- rlinf path
     torch.manual_seed(a.seed)
     with torch.no_grad():
@@ -95,6 +110,7 @@ def main():
     fork_flat = converters.convert_to_umi_action_n1d7(fork_action, chunk_size=cfg.num_action_chunks)
     gt_flat = converters.convert_to_umi_action_n1d7(gt, chunk_size=cfg.num_action_chunks)
 
+    fork2_flat = converters.convert_to_umi_action_n1d7(fork_action2, chunk_size=cfg.num_action_chunks) if fork_action2 is not None else None
     rows = []
     off = 0
     for key, dim in converters.ACTION_KEYS:
@@ -103,10 +119,12 @@ def main():
         rows.append({"key": key, "max_abs_diff": float(d.max()), "mean_abs_diff": float(d.mean()),
                      "scale_|a|": float(np.abs(fork_flat[..., sl]).mean()),
                      "fork_vs_gt": float(np.abs(fork_flat[..., sl] - gt_flat[..., sl]).mean()),
-                     "rlinf_vs_gt": float(np.abs(rl_raw[..., sl] - gt_flat[..., sl]).mean())})
-    print(f"\n{'key':30s} {'max|Δ|':>10s} {'mean|Δ|':>10s} {'mean|a|':>10s} {'fork-GT':>10s} {'rlinf-GT':>10s}")
+                     "rlinf_vs_gt": float(np.abs(rl_raw[..., sl] - gt_flat[..., sl]).mean()),
+                     "seed_spread_max": float(np.abs(fork_flat[..., sl] - fork2_flat[..., sl]).max()) if fork2_flat is not None else None})
+    print(f"\n{'key':30s} {'max|Δ|':>10s} {'mean|Δ|':>10s} {'mean|a|':>10s} {'fork-GT':>10s} {'rlinf-GT':>10s} {'seed max|Δ|':>12s}")
     for r in rows:
-        print(f"{r['key']:30s} {r['max_abs_diff']:10.2e} {r['mean_abs_diff']:10.2e} {r['scale_|a|']:10.2e} {r['fork_vs_gt']:10.2e} {r['rlinf_vs_gt']:10.2e}")
+        ss = f"{r['seed_spread_max']:12.2e}" if r["seed_spread_max"] is not None else f"{'-':>12s}"
+        print(f"{r['key']:30s} {r['max_abs_diff']:10.2e} {r['mean_abs_diff']:10.2e} {r['scale_|a|']:10.2e} {r['fork_vs_gt']:10.2e} {r['rlinf_vs_gt']:10.2e} {ss}")
     worst = max(r["max_abs_diff"] for r in rows)
     print(f"\nshapes: fork {fork_flat.shape} rlinf {rl_raw.shape}   worst max|Δ| = {worst:.3e}")
     if a.out:
