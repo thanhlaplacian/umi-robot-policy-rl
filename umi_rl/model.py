@@ -58,6 +58,12 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
         rl_head_config=cfg.rl_head_config,
     )
     model.to(torch_dtype)
+    # The fork samples the flow-matching time from a Beta whose parameters became bf16 with the
+    # cast above; torch has no bf16 Dirichlet sampler. Keep the distribution in fp32 (the fork's
+    # trainer holds fp32 weights under autocast, so this matches its numerics).
+    bd = getattr(model.action_head, "beta_dist", None)
+    if bd is not None and bd.concentration1.dtype != torch.float32:
+        model.action_head.beta_dist = torch.distributions.Beta(bd.concentration1.float(), bd.concentration0.float())
     if cfg.rl_head_config.add_value_head and hasattr(model.action_head, "value_head"):
         model.action_head.value_head._init_weights()
     if cfg.rl_head_config.disable_dropout:
@@ -118,6 +124,32 @@ def _model_class():
             with torch.inference_mode():
                 model_pred = self.get_action(normalized_input)
             return model_pred["action_pred"].float()
+
+        def sft_forward(self, data, **kwargs):
+            """Supervised / offline loss on a batch from ``umi_rl.offline.data`` (RLinf SFT hook).
+
+            Runs the fork's own training forward (``Gr00tN1d7.forward``), i.e. flow-matching
+            velocity MSE plus the auxiliary heads the checkpoint config enables, with the STEAM
+            ``optimality`` flag consumed exactly as in the fork's SFT trainer (CFGRL conditioning
+            and/or ``advantage_weight_suboptimal`` when the model config sets them). Returns the
+            scalar loss; extra scalar stats go to ``self.last_sft_stats``.
+            """
+            from gr00t.model.gr00t_n1d7.gr00t_n1d7 import Gr00tN1d7, Gr00tN1d7ActionHead
+
+            # the fork's collator returns BatchFeature({"inputs": batch}); unwrap whatever container
+            inputs = data["inputs"] if hasattr(data, "keys") and "inputs" in data else data
+            inputs = dict(inputs.items())
+            device = next(self.parameters()).device
+            inputs = {k: (v.to(device, non_blocking=True) if torch.is_tensor(v) else v) for k, v in inputs.items()}
+            # RLinf's RL head overrides prepare_input/forward with the PPO replay signature
+            # (chains, denoise_inds); call the fork's training versions on the same modules.
+            backbone_inputs, action_inputs = Gr00tN1d7.prepare_input(self, inputs)
+            action_inputs = Gr00tN1d7ActionHead.prepare_input(self.action_head, inputs)
+            action_inputs = action_inputs.to(device) if hasattr(action_inputs, "to") else action_inputs
+            backbone_outputs = self.backbone(backbone_inputs)
+            out = Gr00tN1d7ActionHead.forward(self.action_head, backbone_outputs, action_inputs)
+            self.last_sft_stats = {k: float(v) for k, v in out.items() if torch.is_tensor(v) and v.numel() == 1 and k != "loss"}
+            return out["loss"]
 
         @staticmethod
         def _load_processor_from_dir(processor_dir: Path, *, backbone_model_path):
