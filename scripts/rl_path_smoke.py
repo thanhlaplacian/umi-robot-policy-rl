@@ -71,8 +71,9 @@ def main():
     with torch.autocast("cuda", dtype=torch.bfloat16):
         out = model(forward_inputs=fi, prev_logprobs=pl, compute_logprobs=True, compute_values=True)
     print(f"actor forward {time.time()-t:.1f}s  keys {sorted(out)}")
-    lp = out["logprobs"]
-    print(f"  logprobs {tuple(lp.shape)} finite={bool(torch.isfinite(lp).all())}  |logprobs - prev_logprobs| max={(lp.float()-pl.float().to(lp.device)).abs().max():.3e}")
+    lp, plo = out["logprobs"], out["prev_logprobs"]  # forward returns prev_logprobs aligned to its own layout
+    print(f"  logprobs {tuple(lp.shape)} prev_logprobs(aligned) {tuple(plo.shape)} finite={bool(torch.isfinite(lp).all())}  |logprobs - prev| max={(lp.float()-plo.float().to(lp.device)).abs().max():.3e} (same chain replayed: ratio ~ 1)")
+    pl = plo
     print(f"  values {tuple(out['values'].shape)}  entropy {tuple(out['entropy'].shape) if torch.is_tensor(out['entropy']) else out['entropy']}")
     # backward through the ratio to prove gradients flow into backbone/head (no optimizer step)
     ratio = torch.exp(lp.float() - pl.float().to(lp.device))
