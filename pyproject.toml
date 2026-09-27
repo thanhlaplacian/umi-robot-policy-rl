@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "umi-rl"
+version = "0.0.1"
+description = "RL fine-tuning glue between umi-robot-policy (GR00T N1.7 fork) and RLinf"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["umi_rl*"]
