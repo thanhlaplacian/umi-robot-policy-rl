@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: umi-rl
+Version: 0.0.1
+Summary: RL fine-tuning glue between umi-robot-policy (GR00T N1.7 fork) and RLinf
+Requires-Python: >=3.10

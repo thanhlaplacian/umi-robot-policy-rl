@@ -1,0 +1,36 @@
+# RLinf model config for the company GR00T N1.7 checkpoints (UMI bimanual, 16 x 20-dim chunk).
+# Drop-in for examples/embodiment/config/model/gr00t_n1d7.yaml; requires `import umi_rl.model`
+# in the entrypoint (scripts/ do this) so model_type resolves.
+model_type: "gr00t_n1d7_umi"
+precision: "bf16"
+is_lora: false
+
+model_path: /data/models/UMICore-v0.16.9/checkpoint-3000
+backbone_model_path: /data/.cache/huggingface/hub/models--nvidia--Cosmos-Reason2-2B/snapshots/9ce19a195e423419c349abfc86fd07178b230561
+embodiment_tag: umi_bimanual_v2
+obs_converter_type: umi_bimanual
+
+action_dim: 20          # rot6d(6)+xyz(3)+gripper(1) per arm
+num_action_chunks: 16   # 16 steps @ 15 fps, the deployment chunk
+denoising_steps: 4
+add_value_head: true
+
+rl_head_config:
+  joint_logprob: false
+  noise_method: flow_sde
+  ignore_last: false
+  safe_get_logprob: false
+  noise_anneal: false
+  noise_params: [0.7, 0.3, 400]
+  noise_level: 0.5
+  action_noise_scale: 0.1
+  add_value_head: true
+  chunk_critic_input: false
+  detach_critic_input: true
+  disable_dropout: true
+  use_vlm_value: false
+  value_vlm_mode: mean_token
+  # 0 = never pad prompts (RLinf then groups eval batches by prompt); the VLSA mask patch makes
+  # padding safe, but one prompt per rank is the rule for training anyway.
+  padding_value: 0
+num_steps: 4
