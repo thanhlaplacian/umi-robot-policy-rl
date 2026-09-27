@@ -69,15 +69,22 @@ def main():
     rl_in = rl.apply_transforms(obs_copy)
     rl_in = rl._cast_float_tensors_to_compute_dtype(rl_in, rl.compute_dtype)
 
+    def unwrap(inp):
+        d = inp.items() if isinstance(inp, dict) else inp.data.items()
+        d = dict(d)
+        if set(d) == {"inputs"}:  # Gr00tPolicy's collate wraps the batch as {"inputs": batch}
+            return unwrap(d["inputs"])
+        return d
+
     def flat(d):
         out = {}
         for k, v in (d.items() if isinstance(d, dict) else d.data.items()):
-            if isinstance(v, dict) or hasattr(v, "data"):
+            if isinstance(v, dict) or (hasattr(v, "data") and not torch.is_tensor(v)):
                 out.update({f"{k}.{kk}": vv for kk, vv in flat(v).items()})
             else:
                 out[k] = v
         return out
-    fi, ri = flat(fork_in), flat(rl_in)
+    fi, ri = flat(unwrap(fork_in)), flat(unwrap(rl_in))
     print("fork keys :", sorted(fi)); print("rlinf keys:", sorted(ri))
     for k in sorted(set(fi) & set(ri)):
         x, y = fi[k], ri[k]
@@ -93,7 +100,7 @@ def main():
 
     # same model, same seed, each input set
     def run(inp):
-        inp = {k: (v.to("cuda") if torch.is_tensor(v) else v) for k, v in (inp.items() if isinstance(inp, dict) else inp.data.items())}
+        inp = {k: (v.to("cuda") if torch.is_tensor(v) else v) for k, v in unwrap(inp).items()}
         torch.manual_seed(a.seed)
         with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
             return policy.model.get_action(inp)["action_pred"][:, :16, :20].float().cpu()
@@ -102,7 +109,7 @@ def main():
     # and the RLinf model object with the fork's inputs (weights identical?)
     torch.manual_seed(a.seed)
     with torch.inference_mode(), torch.autocast("cuda", dtype=torch.bfloat16):
-        inp = {k: (v.to("cuda") if torch.is_tensor(v) else v) for k, v in fork_in.items()}
+        inp = {k: (v.to("cuda") if torch.is_tensor(v) else v) for k, v in unwrap(fork_in).items()}
         arl = rl.get_action(inp)["action_pred"][:, :16, :20].float().cpu()
     print(f"fork inputs through fork model vs RLinf model object: max|Δ|={(af-arl).abs().max():.3e}")
 

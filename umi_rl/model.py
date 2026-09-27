@@ -85,6 +85,40 @@ def _model_class():
     )
 
     class UmiGr00tN1d7ForRL(GR00T_N1_7_ForRLActionPrediction):
+        def _prepare_rollout_observation(self, env_obs):
+            """Same as RLinf's, minus the bf16 round-trip of the RAW state.
+
+            RLinf rounds the raw state to bf16 before normalization to mimic a quirk of its
+            LIBERO training data. The fork normalizes the float32 raw state and only then casts
+            to bf16, in training and in deployment alike; keeping RLinf's hack moved the
+            normalized state by up to one bf16 ulp and the decoded action by ~1e-3 (measured,
+            scripts/parity_inputs.py). Dropping it makes the two paths bit-identical.
+            """
+            env_obs = dict(env_obs)
+            states = env_obs["states"]
+            env_obs["states"] = states.detach().cpu().float() if torch.is_tensor(states) else torch.as_tensor(states, dtype=torch.float32)
+            observations = self.obs_convert_fn(env_obs)
+            obs_copy = observations.copy()
+            is_batch = self._check_state_is_batched(obs_copy)
+            if not is_batch:
+                from rlinf.models.embodiment.gr00t.utils import unsqueeze_dict_values
+
+                obs_copy = unsqueeze_dict_values(obs_copy)
+            obs_copy = self._coerce_observation_values_to_numpy(obs_copy)
+            return observations, obs_copy, is_batch
+
+        def _get_action_from_normalized_input(self, normalized_input):
+            """Eval-path sampling exactly as the fork's deployment wrapper runs it.
+
+            RLinf wraps ``get_action`` in ``torch.autocast(bf16)``; the fork's ``Gr00tPolicy``
+            (and planner-vla) run the bf16 model under ``inference_mode`` only. The autocast
+            changes the numerics of the fp32 pieces of the head and moved the decoded action by
+            ~1e-3 (scripts/parity_check.py); without it the two paths agree bit for bit.
+            """
+            with torch.inference_mode():
+                model_pred = self.get_action(normalized_input)
+            return model_pred["action_pred"].float()
+
         @staticmethod
         def _load_processor_from_dir(processor_dir: Path, *, backbone_model_path):
             loading_kwargs = {"trust_remote_code": True}
