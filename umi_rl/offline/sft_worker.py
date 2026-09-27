@@ -24,7 +24,8 @@ class UmiVlaSftWorker(FSDPVlaSftWorker):
 
         d = self.cfg.data
         specs = []
-        for item in OmegaConf.to_container(data_paths, resolve=True):
+        items = OmegaConf.to_container(data_paths, resolve=True) if not isinstance(data_paths, (list, str, dict)) else data_paths
+        for item in (items if isinstance(items, list) else [items]):
             if isinstance(item, str):
                 item = {"path": item}
             specs.append(OfflineDatasetSpec(
@@ -33,7 +34,8 @@ class UmiVlaSftWorker(FSDPVlaSftWorker):
                 steam_optimality_threshold=float(item.get("steam_optimality_threshold", d.get("steam_optimality_threshold", 0.0))),
                 eef_state_mask_prob=float(item.get("eef_state_mask_prob", d.get("eef_state_mask_prob", 0.0))),
                 extra=dict(item.get("extra", {}))))
-        overrides = OmegaConf.to_container(d.get("processor_overrides", {}), resolve=True) or {}
+        ov = d.get("processor_overrides", None)
+        overrides = OmegaConf.to_container(ov, resolve=True) if ov is not None else {}
         processor = build_processor(self.cfg.actor.model.model_path, **overrides)
         dataset = build_dataset(processor, specs, steam_label_version=d.get("steam_label_version"),
                                 seed=int(self.cfg.actor.seed) + self._rank, num_shards_per_epoch=int(d.get("num_shards_per_epoch", 100000)),

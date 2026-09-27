@@ -23,7 +23,7 @@ mp.set_start_method("spawn", force=True)
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-@hydra.main(version_base="1.1", config_path=os.path.join(ROOT, "configs"), config_name="offline/umi_sft_smoke")
+@hydra.main(version_base="1.1", config_path=os.path.join(ROOT, "configs", "offline"), config_name="umi_sft_smoke")
 def main(cfg) -> None:
     cfg = validate_cfg(cfg)
     logging.info(json.dumps(OmegaConf.to_container(cfg, resolve=True), indent=2))
