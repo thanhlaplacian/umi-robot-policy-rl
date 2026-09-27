@@ -1,7 +1,7 @@
 # Phase 1: offline RL with STEAM advantages through RLinf
 
-Status: **in progress** (2026-09-28). The data path and the 8-GPU training loop are wired; see
-"Done" and "Next" below.
+Status (2026-09-28): increment 1 **done** (8-GPU RLinf SFT smoke trained, checkpointed, exported
+and reloaded by the fork); increment 2 wired (`advantage_weight_suboptimal`), not yet run.
 
 ## What exists, measured
 
@@ -53,12 +53,30 @@ fork's trainer. Why not RLinf's IQL path: it has no image/chunk support.
   global 64, fp32 master weights under bf16 autocast, gradient checkpointing, DCP checkpoints
   plus full weights).
 
+## Smoke result (`configs/offline/umi_sft_smoke.yaml`, run `umi-rl-offline-sft-smoke`)
+
+| Item | Value |
+|---|---|
+| Setup | 8 x GPU, FSDP2 full-shard, fp32 master + bf16 autocast, gradient checkpointing, micro 4 x accum 2 = 64 samples/step |
+| Steps | 20 (dataset `26-W33-TELE2-rebot-batch1`, STEAM v0.2.16 stamped, lr 1e-5) |
+| train/loss | 0.0139 -> 0.0101 (range 0.009-0.018, noisy at this batch size) |
+| train/progress_loss | 0.030 -> 0.016 |
+| train/grad_norm | 0.02-0.035 |
+| time/step | 0.8-1.0 s (first step 3.4 s; last step 32.7 s includes the checkpoint) |
+| GPU memory | ~47 GB per GPU during training |
+| Checkpoint | `.../checkpoints/global_step_20/actor/` = `dcp_checkpoint` 26 GB + `model_state_dict/full_weights.pt` 13 GB + `data.pt` + `rng.pt` |
+| Export | `scripts/export_hf_checkpoint.py` -> `/home/thanh/models/umi-rl-offline-sft-smoke-step20` (2 safetensors shards, 6.4 GiB bf16); `AutoModel.from_pretrained` loads it, tensor names identical to the base (0 missing / 0 unexpected), action-head weights moved by ~2e-4, backbone unchanged (frozen in the recipe) |
+| Logs | TensorBoard `/home/thanh/rlinf-runs/logs/umi-rl/tensorboard`, W&B project `finetune-gr00t-n1d7` |
+
+How to run: `ray start --head --port=6379 --dashboard-host=127.0.0.1 --dashboard-port=8265` once
+(the venv's Ray), then `bash scripts/run_offline_sft.sh umi_sft_smoke`; stop a run with
+`scripts/kill_offline_sft.sh`.
+
 ## Next
 
-1. Finish the smoke (20 steps), read the loss curve and the checkpoint layout.
-2. Converter: DCP/full-weights checkpoint -> HF-style checkpoint dir (safetensors + the copied
-   processor files) so the fork's `open_loop_eval_eef.py` can score it on the TELE2 holdout.
-3. Increment 2: `data.advantage_weight_suboptimal` -> per-sample weights in `sft_forward`
+1. Score the exported step-20 checkpoint and the base with the fork's open-loop holdout eval
+   (TELE2-rebot VAL2) to confirm the RLinf loop does not regress the policy.
+2. Increment 2: `data.advantage_weight_suboptimal` -> per-sample weights in `sft_forward`
    (`loss = sum(w * l) / sum(w)`), logged `advantage_weight_sum`; run A/B (weight 1.0 vs 0.3 vs
    0.0) on the labelled mix for 5k steps each, compare holdout ADE and rollout on the rebot.
 4. Label coverage: the newest rebot/UMI2 sets are unlabelled; scoring them needs the fork's
