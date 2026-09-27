@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv
+venv/
+logs/
+outputs/
+wandb/
+*.log
+*.png
+*.mp4
+/runs/
+.pytest_cache/
