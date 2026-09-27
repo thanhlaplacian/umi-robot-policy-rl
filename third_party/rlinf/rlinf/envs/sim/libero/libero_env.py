@@ -194,7 +194,15 @@ class LiberoEnv(gym.Env):
 
     def _init_env(self):
         env_fns = self.get_env_fns()
-        self.env = ReconfigureSubprocEnv(env_fns)
+        # Local patch (2026-09-17): RLINF_LIBERO_INPROCESS_ENVS=1 keeps all sims
+        # of this worker in-process (one GL-rendering process per GPU); see
+        # rlinf/envs/sim/libero/venv.py for why this is needed on this host.
+        if os.environ.get("RLINF_LIBERO_INPROCESS_ENVS", "0") == "1":
+            from rlinf.envs.sim.libero.venv import ReconfigureDummyEnv
+
+            self.env = ReconfigureDummyEnv(env_fns)
+        else:
+            self.env = ReconfigureSubprocEnv(env_fns)
 
     def get_env_fns(self):
         env_fn_params = self.get_env_fn_params()

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import json
+import os
 import random
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
@@ -988,8 +989,54 @@ class GR00T_N1_7_ForRLActionPrediction(Gr00tN1d7, BasePolicy):
         mode: Literal["train", "eval"] = "train",
         **kwargs,
     ):
-        """Rollout entry point: produce env-ready actions and RL bookkeeping."""
+        """Rollout entry point: produce env-ready actions and RL bookkeeping.
+
+        Local patch (2026-09-18): the N1.7 backbone does not tolerate padded
+        text tokens (fixed ``padding_value`` padding or in-batch padding of
+        mixed-length prompts both change the predicted actions). In ``eval``
+        mode with ``padding_value == 0`` and ``RLINF_GR00T_GROUP_BY_PROMPT`` not
+        set to "0", the batch is therefore split by task prompt so that every
+        forward pass contains identical-length prompts and no padding occurs.
+        """
         del kwargs
+        tasks = env_obs.get("task_descriptions") if isinstance(env_obs, dict) else None
+        if (
+            mode == "eval"
+            and getattr(self, "padding_value", 0) == 0
+            and os.environ.get("RLINF_GR00T_GROUP_BY_PROMPT", "1") != "0"
+            and isinstance(tasks, (list, tuple))
+            and len(set(map(str, tasks))) > 1
+        ):
+            groups: dict[str, list[int]] = {}
+            for i, t in enumerate(tasks):
+                groups.setdefault(str(t), []).append(i)
+            raw_parts = {}
+            for idxs in groups.values():
+                sub = {}
+                for k, v in env_obs.items():
+                    if isinstance(v, torch.Tensor):
+                        sub[k] = v[idxs]
+                    elif isinstance(v, np.ndarray):
+                        sub[k] = v[idxs]
+                    elif isinstance(v, (list, tuple)):
+                        sub[k] = [v[i] for i in idxs]
+                    else:
+                        sub[k] = v
+                sub_action, _ = self._predict_action_batch_impl(sub, mode)
+                for j, i in enumerate(idxs):
+                    raw_parts[i] = sub_action[j]
+            ordered = [raw_parts[i] for i in range(len(tasks))]
+            raw_action = (
+                torch.stack(ordered) if isinstance(ordered[0], torch.Tensor) else np.stack(ordered)
+            )
+            return raw_action, {"prev_logprobs": None, "prev_values": None, "forward_inputs": {}}
+        return self._predict_action_batch_impl(env_obs, mode)
+
+    def _predict_action_batch_impl(
+        self,
+        env_obs,
+        mode: Literal["train", "eval"] = "train",
+    ):
         observations, obs_copy, is_batch = self._prepare_rollout_observation(env_obs)
         normalized_action, result = self._predict_normalized_action(obs_copy, mode)
         unnormalized_action = self._get_unnormalized_action(

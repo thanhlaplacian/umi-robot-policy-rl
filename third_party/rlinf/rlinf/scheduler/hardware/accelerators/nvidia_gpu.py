@@ -413,6 +413,13 @@ class NvidiaGPUManager(AcceleratorManager):
                     cuda_device_id,
                 )
                 egl_device_id = cuda_device_id
+            # Local patch (2026-09-17): RLINF_EGL_DEVICE_OVERRIDE pins every
+            # worker's renderer to one EGL device index (e.g. "0") regardless of
+            # its CUDA device. Needed on hosts where GL rendering on non-primary
+            # GPUs stalls or aborts; compute placement is unaffected.
+            override = os.environ.get("RLINF_EGL_DEVICE_OVERRIDE")
+            if override not in (None, ""):
+                egl_device_id = override
             for env_var in EGL_DEVICE_ID_ENV_VARS:
                 env_vars[env_var] = str(egl_device_id)
 

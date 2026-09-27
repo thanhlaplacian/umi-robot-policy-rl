@@ -21,6 +21,7 @@ import gym
 import numpy as np
 
 from rlinf.envs.sim.libero.utils import get_libero_type
+from rlinf.envs.venv.venv import DummyEnvWorker, DummyVectorEnv
 from rlinf.envs.venv import (
     BaseVectorEnv,
     CloudpickleWrapper,
@@ -91,6 +92,42 @@ def _set_camera_rendering(env, enabled: bool) -> None:
             observables[name]._enabled = enabled
 
 
+
+# ---------------------------------------------------------------------------
+# Local patch (2026-09-17): on this host, creating an EGL/GL render context on a
+# non-primary GPU (EGL device index != 0) from several processes at the same
+# time stalls for minutes (robosuite hard resets re-create the context every
+# episode). Serialize context-creating operations per EGL device with an
+# inter-process file lock. Control with RLINF_LIBERO_EGL_LOCK: "device"
+# (default, one lock per MUJOCO_EGL_DEVICE_ID), "host" (one lock machine-wide)
+# or "0" (disabled).
+# ---------------------------------------------------------------------------
+import contextlib
+import fcntl
+import os as _os
+
+
+@contextlib.contextmanager
+def _egl_context_lock():
+    mode = _os.environ.get("RLINF_LIBERO_EGL_LOCK", "device").lower()
+    if mode in ("0", "off", "false", "none") or _os.environ.get("MUJOCO_GL", "egl") in (
+        "osmesa",
+        "glx",
+    ):
+        yield
+        return
+    scope = "host" if mode == "host" else _os.environ.get("MUJOCO_EGL_DEVICE_ID", "default")
+    lock_path = _os.path.join(
+        _os.environ.get("RLINF_LIBERO_EGL_LOCK_DIR", "/tmp"), f"rlinf_libero_egl_{scope}.lock"
+    )
+    with open(lock_path, "a+") as fh:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+
 def _worker(
     parent: connection.Connection,
     p: connection.Connection,
@@ -111,7 +148,8 @@ def _worker(
         return None
 
     parent.close()
-    env = env_fn_wrapper.data()
+    with _egl_context_lock():
+        env = env_fn_wrapper.data()
     try:
         while True:
             try:
@@ -126,7 +164,8 @@ def _worker(
                     env_return = (None, *env_return[1:])
                 p.send(env_return)
             elif cmd == "reset":
-                retval = env.reset(**data)
+                with _egl_context_lock():
+                    retval = env.reset(**data)
                 reset_returns_info = (
                     isinstance(retval, (tuple, list))
                     and len(retval) == 2
@@ -171,8 +210,9 @@ def _worker(
             elif cmd == "reconfigure":
                 env.close()
                 seed = data.pop("seed")
-                env = OffScreenRenderEnv(**data)
-                env.seed(seed)
+                with _egl_context_lock():
+                    env = OffScreenRenderEnv(**data)
+                    env.seed(seed)
                 p.send(None)
             elif cmd == "get_camera_meta":
                 # Compute camera intrinsics/extrinsics and depth near/far
@@ -284,3 +324,94 @@ class ReconfigureSubprocEnv(SubprocVectorEnv):
             self.workers[i].parent_remote.send(["set_camera_rendering", enabled])
         for i in id:
             self.workers[i].parent_remote.recv()
+
+
+# ---------------------------------------------------------------------------
+# Local addition (2026-09-17): in-process (single process per env worker)
+# variant of ReconfigureSubprocEnv. On this host, GL rendering from several
+# processes on the same non-primary GPU stalls for minutes, while several GL
+# contexts inside one process render normally. Enabled from LiberoEnv via
+# RLINF_LIBERO_INPROCESS_ENVS=1.
+# ---------------------------------------------------------------------------
+def _unwrap_robosuite(env):
+    rob = getattr(env, "env", env)
+    while hasattr(rob, "env"):
+        rob = rob.env
+    return rob
+
+
+class ReconfigureDummyEnvWorker(DummyEnvWorker):
+    """In-process LIBERO env worker supporting task reconfiguration."""
+
+    def reconfigure_env_fn(self, env_fn_param):
+        self.env.close()
+        data = dict(env_fn_param)
+        seed = data.pop("seed")
+        self.env = OffScreenRenderEnv(**data)
+        self.env.seed(seed)
+        return None
+
+    def set_camera_rendering(self, enabled: bool) -> None:
+        _set_camera_rendering(self.env, enabled)
+
+    def get_camera_meta(
+        self, camera_name: str = "agentview", height: int = 256, width: int = 256
+    ) -> Any:
+        from robosuite.utils import camera_utils
+
+        sim = _unwrap_robosuite(self.env).sim
+        h, w = int(height), int(width)
+        K = camera_utils.get_camera_intrinsic_matrix(sim, camera_name, h, w)
+        E = camera_utils.get_camera_extrinsic_matrix(sim, camera_name)
+        extent = float(sim.model.stat.extent)
+        return {
+            "camera_name": camera_name,
+            "height": h,
+            "width": w,
+            "intrinsic_K": K.tolist(),
+            "extrinsic_cam2world": E.tolist(),
+            "depth_near": float(sim.model.vis.map.znear) * extent,
+            "depth_far": float(sim.model.vis.map.zfar) * extent,
+        }
+
+    def render_camera(
+        self,
+        camera_name: str = "agentview",
+        height: int = 1024,
+        width: int = 1024,
+        depth: bool = False,
+    ) -> Any:
+        sim = _unwrap_robosuite(self.env).sim
+        return sim.render(
+            width=int(width), height=int(height), camera_name=camera_name, depth=bool(depth)
+        )
+
+
+class ReconfigureDummyEnv(DummyVectorEnv):
+    """In-process counterpart of ReconfigureSubprocEnv.
+
+    WARNING (verified 2026-09-18): LIBERO keeps process-global state, so several
+    LIBERO envs of *different scenes* in one process corrupt each other's
+    initial states (all but the last-created env render a wrong scene). Safe only
+    for single-scene suites (e.g. libero_spatial); do not use for libero_10/90.
+    Prefer subprocess envs with RLINF_EGL_DEVICE_OVERRIDE for the host GL stall.
+    """
+
+    def __init__(self, env_fns: list[Callable[[], gym.Env]], **kwargs: Any) -> None:
+        BaseVectorEnv.__init__(self, env_fns, ReconfigureDummyEnvWorker, **kwargs)
+
+    def reconfigure_env_fns(self, env_fns, id=None):
+        self._assert_is_not_closed()
+        id = self._wrap_id(id)
+        if self.is_async:
+            self._assert_id(id)
+        for j, i in enumerate(id):
+            self.workers[i].reconfigure_env_fn(env_fns[j])
+
+    def set_camera_rendering(self, enabled: bool, id=None):
+        self._assert_is_not_closed()
+        id = self._wrap_id(id)
+        if self.is_async:
+            self._assert_id(id)
+        for i in id:
+            self.workers[i].set_camera_rendering(enabled)
