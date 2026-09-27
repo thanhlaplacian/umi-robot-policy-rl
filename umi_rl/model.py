@@ -46,6 +46,12 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
     config = Gr00tN1d7Config.from_pretrained(str(model_path))
     if cfg.get("action_dim") is not None:
         config.action_dim = cfg.action_dim
+    # Offline-RL knobs the fork implements inside its training forward (see docs/PHASE1.md):
+    # advantage_weight_suboptimal in [0, 1] down-weights frames whose STEAM optimality flag is 0
+    # (1.0 = plain SFT, 0.0 = filtered BC). None keeps the checkpoint's own setting.
+    for key in ("advantage_weight_suboptimal",):
+        if cfg.get(key) is not None:
+            setattr(config, key, cfg.get(key))
     backbone_model_path = OmegaConf.select(cfg, "backbone_model_path", default=None)
     model = UmiGr00tN1d7ForRL.from_pretrained(
         config=config,
