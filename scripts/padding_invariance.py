@@ -45,8 +45,10 @@ def worker():
     proc = Gr00tN1d7Processor.from_pretrained(cfg.model_path)
     modality = proc.modality_configs[tag.value]
     samples = []
+    # two frames of the SAME dataset (same image size) with prompts of different token length
+    long_prompt = "Pick up the objects on the table and place them in the box, then push the box to the far left edge of the table and wait."
     for ds, ep, st, prompt in [("/data/dataset/26-W33-TELE2-rebot-batch1", 0, 40, None),
-                               ("/data/umi_dataset/26-W36-UMI2-batch1", 3, 50, "Pick up the objects on the table and place them in the basket, then push the basket to the left edge of the table.")]:
+                               ("/data/dataset/26-W33-TELE2-rebot-batch1", 1, 30, long_prompt)]:
         loader = LeRobotEpisodeLoader(ds, modality_configs=modality, video_backend="pyav")
         dp = extract_step_data(loader.get_episode(ep), st, modality, tag)
         views = [k for k in modality["video"].modality_keys if k in dp.images]
@@ -59,17 +61,24 @@ def worker():
     # force the padded path: disable RLinf's eval grouping-by-prompt so the batch is really padded
     os.environ["RLINF_GR00T_GROUP_BY_PROMPT"] = "0"
 
-    def run(obs):
-        torch.manual_seed(0)
+    def run(batch):
+        obs = {k: (torch.cat([s[k] for s in batch]) if torch.is_tensor(batch[0][k]) else [s[k][0] for s in batch]) for k in batch[0]}
+        torch.manual_seed(0)  # sample 0 of any batch draws the same noise block as when run alone
         with torch.no_grad():
             act, _ = model.predict_action_batch(env_obs=obs, mode="eval")
         return np.asarray(act, np.float32)
-    alone = [run(o) for o in samples]
-    both = run({k: (torch.cat([s[k] for s in samples]) if torch.is_tensor(samples[0][k]) else [s[k][0] for s in samples]) for k in samples[0]})
+    short, long = samples
+    alone_short, alone_long = run([short])[0], run([long])[0]
+    padded_short = run([short, long])[0]   # short gets right-padded to the long prompt's length
+    long_in_batch = run([long, short])[0]  # unpadded itself; only its batch partner is padded
     tok = [len(model._modality_transform.processor.tokenizer(s["task_descriptions"][0])["input_ids"]) for s in samples]
-    d = [float(np.abs(alone[i][0] - both[i]).max()) for i in range(2)]
-    scale = float(np.mean([np.abs(a).mean() for a in alone]))
-    print(f"RESULT mask={os.environ.get('GR00T_VLSA_APPLY_MASK','0')} prompt_tokens={tok} max|Δ| padded-vs-alone: short={d[0]:.3e} long={d[1]:.3e} (mean|a|={scale:.3e})")
+    scale = float(np.abs(alone_short).mean())
+    per_key = []
+    off = 0
+    for key, dim in converters.ACTION_KEYS:
+        per_key.append(f"{key.replace('FRAME_END_EFFECTOR_','').replace('JOINT_GRIPPER_','grip_')}={np.abs(padded_short[:, off:off+dim]-alone_short[:, off:off+dim]).max():.1e}")
+        off += dim
+    print(f"RESULT mask={os.environ.get('GR00T_VLSA_APPLY_MASK','0')} prompt_tokens={tok} pads={tok[1]-tok[0]}  padded-vs-alone max|Δ|={np.abs(padded_short-alone_short).max():.3e}  [{' '.join(per_key)}]  batch-sanity(unpadded) max|Δ|={np.abs(long_in_batch-alone_long).max():.3e}  mean|a|={scale:.3e}")
 
 
 if __name__ == "__main__":
