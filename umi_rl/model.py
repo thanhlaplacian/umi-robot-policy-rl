@@ -33,10 +33,9 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
     except ValueError:
         pass  # already registered in this process
 
-    from rlinf.models.embodiment.gr00t.gr00t_n1d7.gr00t_action_model import (
-        GR00T_N1_7_ForRLActionPrediction,
-    )
     from rlinf.models.embodiment.gr00t.utils import replace_dropout_with_identity
+
+    UmiGr00tN1d7ForRL = _model_class()
 
     emb_tag = embodiment.resolve(cfg.embodiment_tag)
     model_path = Path(cfg.model_path)
@@ -46,7 +45,7 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
     if cfg.get("action_dim") is not None:
         config.action_dim = cfg.action_dim
     backbone_model_path = OmegaConf.select(cfg, "backbone_model_path", default=None)
-    model = GR00T_N1_7_ForRLActionPrediction.from_pretrained(
+    model = UmiGr00tN1d7ForRL.from_pretrained(
         config=config,
         local_model_path=str(model_path),
         pretrained_model_name_or_path=str(model_path),
@@ -64,6 +63,40 @@ def get_model(cfg: DictConfig, torch_dtype=torch.bfloat16):
     if cfg.rl_head_config.disable_dropout:
         replace_dropout_with_identity(model)
     return model
+
+
+_MODEL_CLS = None
+
+
+def _model_class():
+    """RLinf's N1.7 RL wrapper with the processor loaded by the fork's own ``from_pretrained``.
+
+    RLinf builds ``Gr00tN1d7Processor(**processor_kwargs)`` straight from ``processor_config.json``;
+    the fork's loader is the one that knows its legacy key aliases (``optional_views_last`` ->
+    ``cam_head_last``), drops keys the pinned code no longer declares, and reads statistics /
+    embodiment ids itself. Defined lazily so importing ``umi_rl.model`` stays cheap.
+    """
+    global _MODEL_CLS
+    if _MODEL_CLS is not None:
+        return _MODEL_CLS
+    from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor
+    from rlinf.models.embodiment.gr00t.gr00t_n1d7.gr00t_action_model import (
+        GR00T_N1_7_ForRLActionPrediction,
+    )
+
+    class UmiGr00tN1d7ForRL(GR00T_N1_7_ForRLActionPrediction):
+        @staticmethod
+        def _load_processor_from_dir(processor_dir: Path, *, backbone_model_path):
+            loading_kwargs = {"trust_remote_code": True}
+            if backbone_model_path is not None:
+                loading_kwargs["local_files_only"] = True
+            processor = Gr00tN1d7Processor.from_pretrained(
+                str(processor_dir), transformers_loading_kwargs=loading_kwargs
+            )
+            return processor, getattr(processor, "modality_configs", None)
+
+    _MODEL_CLS = UmiGr00tN1d7ForRL
+    return _MODEL_CLS
 
 
 def register() -> None:
