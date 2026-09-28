@@ -51,6 +51,9 @@ class RewardConfig:
     grasp_close_thresh: float = 0.3 # gripper closed fraction above which a finger contact counts as a grasp
     lift_height: float = 0.025      # metres above the reset height that count as lifted
     basket_target_z: float = 0.05   # target point = basket centre XY, rim height + this
+    fail_on_fall: bool = True       # terminate with fall_penalty when an object drops below the shelf top
+    fall_penalty: float = 2.0
+    fall_margin: float = 0.06       # metres below the reset height that count as fallen
 
 
 @dataclass
@@ -331,10 +334,13 @@ class LaplacianRLEnv:
         obs = self.observe()
         t4 = time.time()
         reward, success = self.compute_reward()
-        terminated = success
+        fell = self.fallen()
+        if self.cfg.reward.fail_on_fall:
+            reward = reward - self.cfg.reward.fall_penalty * fell.float()
+        terminated = success | (fell if self.cfg.reward.fail_on_fall else torch.zeros_like(fell))
         truncated = self.elapsed >= self.cfg.max_episode_steps
         self.timing = {"integrate": t1 - t0, "ik": t2 - t1, "physics": t3 - t2, "observe": t4 - t3}
-        return obs, reward, terminated, truncated, {"success": success, "reward_terms": self.last_reward_terms}
+        return obs, reward, terminated, truncated, {"success": success, "fail": fell, "reward_terms": self.last_reward_terms}
 
     # ------------------------------------------------------------------ reward
     @torch.no_grad()
@@ -417,6 +423,15 @@ class LaplacianRLEnv:
         self._was_in |= inside
         self.last_reward_terms = terms
         return reward, success
+
+    @torch.no_grad()
+    def fallen(self) -> torch.Tensor:
+        """Any object below its reset height by more than fall_margin and not in the basket (knocked off the shelf)."""
+        o = self.object_positions()
+        if not hasattr(self, "_obj_init_pos"):
+            return torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        dropped = (self._obj_init_pos[..., 2] - o[..., 2]) > self.cfg.reward.fall_margin
+        return (dropped & ~self.in_basket(o)).any(-1)
 
     @torch.no_grad()
     def in_basket(self, o: torch.Tensor) -> torch.Tensor:

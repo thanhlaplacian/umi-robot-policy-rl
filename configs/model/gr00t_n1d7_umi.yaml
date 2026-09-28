@@ -23,7 +23,9 @@ rl_head_config:
   noise_anneal: false
   noise_params: [0.7, 0.3, 400]
   noise_level: 0.5
-  action_noise_scale: 0.1
+  # RLinf adds N(0, scale) to the DECODED action (metres / radians here, clamped to [-1, 1]); 0.1 m per
+  # 15 Hz step wrecked the shelf. Exploration comes from the flow-SDE noise_level in the normalized space.
+  action_noise_scale: 0.0
   add_value_head: true
   chunk_critic_input: false
   detach_critic_input: true

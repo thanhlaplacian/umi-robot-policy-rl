@@ -75,10 +75,14 @@ class LaplacianGymEnv(gym.Env):
         ids = torch.randint(0, self.total_num_group_envs, (self.num_group,), generator=self._generator)
         self.reset_state_ids = ids.repeat_interleave(self.group_size).to(self.device)
 
+    _TERM_KEYS = ("grasp", "lifted", "stage", "n_in", "idle_pen", "disturb_pen")
+
     def _init_metrics(self):
         self.success_once = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.fail_once = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.returns = torch.zeros(self.num_envs, device=self.device, dtype=torch.float32)
+        self._term_sum = {k: torch.zeros(self.num_envs, device=self.device) for k in self._TERM_KEYS}
+        self._term_max = {k: torch.zeros(self.num_envs, device=self.device) for k in ("stage", "n_in")}
 
     def _reset_metrics(self, env_idx=None):
         mask = torch.ones(self.num_envs, dtype=torch.bool, device=self.device)
@@ -90,13 +94,34 @@ class LaplacianGymEnv(gym.Env):
         self.fail_once[mask] = False
         self.returns[mask] = 0.0
         self._elapsed[mask] = 0
+        for v in self._term_sum.values():
+            v[mask] = 0.0
+        for v in self._term_max.values():
+            v[mask] = 0.0
 
     def _record_metrics(self, step_reward, infos):
         self.returns += step_reward
         self.success_once = self.success_once | infos["success"]
+        if "fail" in infos:
+            self.fail_once = self.fail_once | infos["fail"]
+        terms = infos.get("reward_terms", {})
+        for k in self._TERM_KEYS:
+            if k in terms:
+                self._term_sum[k] += terms[k].float()
+        for k in self._term_max:
+            if k in terms:
+                self._term_max[k] = torch.maximum(self._term_max[k], terms[k].float())
         ep = {"success_once": self.success_once.clone(), "fail_once": self.fail_once.clone(), "return": self.returns.clone(),
               "episode_len": self._elapsed.clone()}
         ep["reward"] = ep["return"] / ep["episode_len"].clamp_min(1)
+        L = self._elapsed.clamp_min(1).float()
+        ep["grasp_rate"] = self._term_sum["grasp"] / L
+        ep["lift_rate"] = self._term_sum["lifted"] / L
+        ep["stage_mean"] = self._term_sum["stage"] / L
+        ep["stage_max"] = self._term_max["stage"].clone()
+        ep["objects_in_basket_max"] = self._term_max["n_in"].clone()
+        ep["idle_pen_mean"] = self._term_sum["idle_pen"] / L
+        ep["disturb_pen_mean"] = self._term_sum["disturb_pen"] / L
         infos["episode"] = ep
         return infos
 
@@ -137,7 +162,7 @@ class LaplacianGymEnv(gym.Env):
         actions = torch.as_tensor(np.asarray(actions) if not torch.is_tensor(actions) else actions, device=self.device, dtype=torch.float32)
         obs, reward, terminations, truncations, info = self.env.step(actions)
         self._elapsed += 1
-        infos = {"success": info["success"]}
+        infos = {"success": info["success"], "fail": info.get("fail", torch.zeros_like(info["success"])), "reward_terms": info.get("reward_terms", {})}
         step_reward = self._calc_step_reward(reward)
         infos = self._record_metrics(step_reward, infos)
         if self.ignore_terminations:
