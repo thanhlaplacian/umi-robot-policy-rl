@@ -18,35 +18,42 @@ def rotvec_to_mat(v: torch.Tensor) -> torch.Tensor:
     return torch.where(small, eye + K * theta[..., None], R)
 
 
+def mat_to_quat_wxyz(R: torch.Tensor) -> torch.Tensor:
+    """[..., 3, 3] -> unit quaternion [..., 4] (w, x, y, z), Shepperd's method (batched, stable)."""
+    m00, m01, m02 = R[..., 0, 0], R[..., 0, 1], R[..., 0, 2]
+    m10, m11, m12 = R[..., 1, 0], R[..., 1, 1], R[..., 1, 2]
+    m20, m21, m22 = R[..., 2, 0], R[..., 2, 1], R[..., 2, 2]
+    tr = m00 + m11 + m22
+    cands = torch.stack([tr, m00, m11, m22], -1)
+    case = cands.argmax(-1)
+    def build(k):
+        if k == 0:
+            s = torch.sqrt((1 + tr).clamp_min(1e-12)) * 2
+            return torch.stack([0.25 * s, (m21 - m12) / s, (m02 - m20) / s, (m10 - m01) / s], -1)
+        if k == 1:
+            s = torch.sqrt((1 + m00 - m11 - m22).clamp_min(1e-12)) * 2
+            return torch.stack([(m21 - m12) / s, 0.25 * s, (m01 + m10) / s, (m02 + m20) / s], -1)
+        if k == 2:
+            s = torch.sqrt((1 + m11 - m00 - m22).clamp_min(1e-12)) * 2
+            return torch.stack([(m02 - m20) / s, (m01 + m10) / s, 0.25 * s, (m12 + m21) / s], -1)
+        s = torch.sqrt((1 + m22 - m00 - m11).clamp_min(1e-12)) * 2
+        return torch.stack([(m10 - m01) / s, (m02 + m20) / s, (m12 + m21) / s, 0.25 * s], -1)
+    q = build(0)
+    for k in (1, 2, 3):
+        q = torch.where((case == k)[..., None], build(k), q)
+    q = q / torch.linalg.vector_norm(q, dim=-1, keepdim=True)
+    return torch.where((q[..., :1] < 0), -q, q)  # w >= 0 -> angle in [0, pi]
+
+
 def mat_to_rotvec(R: torch.Tensor) -> torch.Tensor:
-    """[..., 3, 3] -> [..., 3] axis-angle (angle in [0, pi])."""
-    tr = R[..., 0, 0] + R[..., 1, 1] + R[..., 2, 2]
-    cos = ((tr - 1) / 2).clamp(-1, 1)
-    theta = torch.acos(cos)
-    axis = torch.stack([R[..., 2, 1] - R[..., 1, 2], R[..., 0, 2] - R[..., 2, 0], R[..., 1, 0] - R[..., 0, 1]], dim=-1)
-    sin = torch.sin(theta)
-    generic = axis / (2 * sin.clamp_min(1e-12))[..., None] * theta[..., None]
-    small = theta < 1e-6
-    # near pi: axis from the symmetric part
-    near_pi = theta > 3.1
-    S = (R + R.transpose(-1, -2)) / 2
-    diag = torch.stack([S[..., 0, 0], S[..., 1, 1], S[..., 2, 2]], -1)
-    ax = torch.sqrt(((diag + 1) / 2).clamp_min(0))
-    # fix signs using the off-diagonal terms relative to the largest component
-    idx = diag.argmax(-1)
-    sgn = torch.ones_like(ax)
-    for j in range(3):
-        for i in range(3):
-            if i != j:
-                sgn[..., i] = torch.where(idx == j, torch.sign(S[..., i, j] + 1e-20), sgn[..., i])
-    ax = ax * sgn
-    ax = ax / torch.linalg.vector_norm(ax, dim=-1, keepdim=True).clamp_min(1e-12)
-    out = torch.where(small[..., None], axis / 2, generic)
-    return torch.where(near_pi[..., None], ax * theta[..., None], out)
+    """[..., 3, 3] -> [..., 3] axis-angle (angle in [0, pi]), via the quaternion."""
+    q = mat_to_quat_wxyz(R)
+    w, xyz = q[..., 0].clamp(-1, 1), q[..., 1:]
+    n = torch.linalg.vector_norm(xyz, dim=-1, keepdim=True)
+    angle = 2 * torch.atan2(n.squeeze(-1), w)[..., None]
+    scale = torch.where(n < 1e-8, 2.0 * torch.ones_like(n), angle / n.clamp_min(1e-12))
+    return xyz * scale
 
 
 def quat_wxyz_from_mat(R: torch.Tensor) -> torch.Tensor:
-    v = mat_to_rotvec(R)
-    theta = torch.linalg.vector_norm(v, dim=-1, keepdim=True)
-    axis = v / theta.clamp_min(1e-12)
-    return torch.cat([torch.cos(theta / 2), axis * torch.sin(theta / 2)], -1)
+    return mat_to_quat_wxyz(R)
