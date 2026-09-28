@@ -72,6 +72,10 @@ class LaplacianRLConfig:
     seed: int = 0
     randomization: str = "baseline"  # object poses only; base stays nominal
     reward: RewardConfig = field(default_factory=RewardConfig)
+    # policy gripper g in [0,1] -> servo command. "linear": -1.0372*g (half-closed for g=0.5, too weak to hold);
+    # "binary": fully closed when g > gripper_thresh (the data generator's convention); "boost": -1.0372*min(1, g/gripper_thresh).
+    gripper_mode: str = "linear"
+    gripper_thresh: float = 0.3
     extra: dict = field(default_factory=dict)
 
     def __post_init__(self):
@@ -327,6 +331,10 @@ class LaplacianRLEnv:
         t2 = time.time()
         ctrl = self.p.ctrl.clone()
         ctrl[:, self.arm_act] = torch.from_numpy(q).to(self.device)
+        if self.cfg.gripper_mode == "binary":
+            grip = (grip > self.cfg.gripper_thresh).float()
+        elif self.cfg.gripper_mode == "boost":
+            grip = (grip / self.cfg.gripper_thresh).clamp(0, 1)
         ctrl[:, self.grip_act] = GRIP_CLOSED_CTRL * grip
         self.p.step(ctrl, self.frame_steps)
         t3 = time.time()

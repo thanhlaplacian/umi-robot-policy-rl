@@ -38,6 +38,7 @@ def main():
     ap.add_argument("--model-cfg", default=os.path.join(ROOT, "configs/model/gr00t_n1d7_umi.yaml"))
     ap.add_argument("--ckpt", default=None, help="override model_path of the model config")
     ap.add_argument("--tag", default="seed", help="output name tag")
+    ap.add_argument("--env-cfg", default=None, help='JSON LaplacianRLConfig overrides, e.g. \'{"gripper_mode":"binary","spawn_count":1}\'')
     ap.add_argument("--prompt", default="Pick up the objects on the shelf and place them in the basket")
     a = ap.parse_args()
     logging.getLogger("huggingface_hub").setLevel(logging.CRITICAL)
@@ -49,7 +50,8 @@ def main():
     from umi_rl.envs.laplacian.rl_env import LaplacianRLConfig, LaplacianRLEnv
 
     rcfg = json.loads(a.reward) if a.reward else {}
-    env = LaplacianRLEnv(LaplacianRLConfig(seed=a.seed, max_episode_steps=a.max_steps, dense_reward=a.dense_reward, reward=rcfg), num_envs=1, device="cuda:0")
+    ecfg = json.loads(a.env_cfg) if a.env_cfg else {}
+    env = LaplacianRLEnv(LaplacianRLConfig(seed=a.seed, max_episode_steps=a.max_steps, dense_reward=a.dense_reward, reward=rcfg, **ecfg), num_envs=1, device="cuda:0")
     mcfg = OmegaConf.load(a.model_cfg)
     if a.ckpt:
         mcfg.model_path = a.ckpt
