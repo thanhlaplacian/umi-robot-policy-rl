@@ -72,6 +72,30 @@ seed 2 reached the grasp stage for 12 steps and the lift stage for 5 steps (max 
 seed 4 the grasp stage for 8 steps; cumulative reward +264 / +259, penalties ≈ 0 (arms near home,
 other object untouched).
 
+## PPO fine-tuning attempts (2026-09-28/29)
+
+| Run | Setup | Outcome |
+|---|---|---|
+| v1 `laplacian_ppo_v0169_staged` | 2 objects, 24 envs x 240 steps, lr 5e-6, kl 0.01, staged reward | first 11 epochs had negative returns: RLinf's `action_noise_scale 0.1` adds N(0, 0.1) to the DECODED per-step EE deltas (metres), the arms flailed and knocked objects off the shelf. Fixed (`action_noise_scale 0`, fall = failure); 27 epochs flat afterwards (grasp 1-3 %, one object in the basket in 3 epochs, never both) |
+| v2 `laplacian_ppo_v0169_staged_1obj_v2` | 1 object, lr 2e-5, kl 0.001, 2 update epochs, 120 epochs (~10 h, 8 GPUs) | return 18.4 -> 20.0 (20-epoch block means), grasp 1.2 -> 1.7 % of steps, lift 0.2 -> 0.5 %; success 0 in epochs 1-20, then 13 successful episodes out of ~2,600 in epochs 21-120 (0.4-0.7 % per block), no sustained increase. Curves: `/home/thanh/rlinf-runs/logs/umi-rl/ppo_v2_curves.png` |
+
+Held-out check, 8 seeds, one object, eval-mode policy (`scripts/gym_episode_video.py --ckpt ...`):
+
+| Policy | success | seeds with grasp contact | seeds with lift | grasp steps (sum) | mean cumulative reward |
+|---|---|---|---|---|---|
+| v0.16.9 base | 0/8 | 5 | 2 | 71 | 201 |
+| PPO v2 step 120 | 0/8 | 7 | 1 | 135 | 250 |
+
+Reading: PPO learned to reach the object and hold finger contact with a closed gripper (the
+stage-4 reward) more often, but not to get the object between the fingers before closing, so
+lifts did not increase. The zero-shot policy closes the gripper ~8 cm early in this simulator
+(depth misjudged from the sim fisheye), and PPO from a ~0 % base rate with 360 chunk samples per
+epoch does not find the corrected grasp. Next steps in order of expected value: warm-start with
+the gym's planner demonstrations (`laplacian-gym generate`, same scene, cameras and LeRobot
+`umi_bimanual` format), then PPO; add a finger-alignment shaping term (object between the fingers
+before closing) and gate the grasp stage on it; consider GRPO with fixed reset ids so the rare
+successes are contrasted within a group.
+
 ## Known gaps
 
 - Throughput is render-bound (~3 policy steps/s for 2 envs). Batched rendering of more envs is
