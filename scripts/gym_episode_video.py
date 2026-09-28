@@ -33,7 +33,8 @@ def main():
     ap.add_argument("--out", default="/home/thanh/rlinf-runs/logs/umi-rl/gym_episode")
     ap.add_argument("--max-steps", type=int, default=240)
     ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--dense-reward", type=float, default=0.0, help="env reward weight on -min TCP-object distance (0 = sparse success only)")
+    ap.add_argument("--dense-reward", type=float, default=0.0, help="legacy: weight on -min TCP-object distance (staged=False only)")
+    ap.add_argument("--reward", default=None, help='JSON RewardConfig overrides, e.g. \'{"staged":true,"idle_arm_penalty":0.1,"disturb_penalty":1.0,"regress_penalty":2.0}\'')
     ap.add_argument("--model-cfg", default=os.path.join(ROOT, "configs/model/gr00t_n1d7_umi.yaml"))
     ap.add_argument("--ckpt", default=None, help="override model_path of the model config")
     ap.add_argument("--tag", default="seed", help="output name tag")
@@ -47,7 +48,8 @@ def main():
     from rlinf.models import get_model
     from umi_rl.envs.laplacian.rl_env import LaplacianRLConfig, LaplacianRLEnv
 
-    env = LaplacianRLEnv(LaplacianRLConfig(seed=a.seed, max_episode_steps=a.max_steps, dense_reward=a.dense_reward), num_envs=1, device="cuda:0")
+    rcfg = json.loads(a.reward) if a.reward else {}
+    env = LaplacianRLEnv(LaplacianRLConfig(seed=a.seed, max_episode_steps=a.max_steps, dense_reward=a.dense_reward, reward=rcfg), num_envs=1, device="cuda:0")
     mcfg = OmegaConf.load(a.model_cfg)
     if a.ckpt:
         mcfg.model_path = a.ckpt
@@ -68,7 +70,8 @@ def main():
             r = float(r[0]); cum += r; step += 1
             dist = float(env.min_tcp_object_distance()[0])
             objs = env.object_positions()[0].cpu().numpy().round(3).tolist()
-            log.append({"step": step, "t_s": step / 15, "reward": r, "cumulative_reward": cum, "min_tcp_object_dist_m": dist,
+            terms = {k: float(v[0]) for k, v in env.last_reward_terms.items()}
+            log.append({"step": step, "t_s": step / 15, "reward": r, "cumulative_reward": cum, "min_tcp_object_dist_m": dist, "terms": terms,
                         "grip": [float(actions[s, 0]), float(actions[s, 7])], "success": bool(info["success"][0]), "objects_xyz": objs})
             im = tile(obs); d = ImageDraw.Draw(im)
             d.rectangle([0, 0, 560, 22], fill=(0, 0, 0))
@@ -94,7 +97,7 @@ def main():
                 cont.mux(pkt)
         for pkt in stream.encode():
             cont.mux(pkt)
-    json.dump({"seed": a.seed, "model_path": str(mcfg.model_path), "steps": step, "duration_s": step / 15, "wall_s": wall, "cumulative_reward": cum, "success": log[-1]["success"],
+    json.dump({"seed": a.seed, "model_path": str(mcfg.model_path), "reward_cfg": rcfg, "steps": step, "duration_s": step / 15, "wall_s": wall, "cumulative_reward": cum, "success": log[-1]["success"],
                "dense_reward_weight": a.dense_reward, "log": log}, open(os.path.join(a.out, f"episode_{a.tag}{a.seed}.json"), "w"), indent=1)
     # curve
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
