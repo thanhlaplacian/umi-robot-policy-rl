@@ -10,7 +10,13 @@ import numpy as np
 import torch
 from omegaconf import OmegaConf
 
-from rlinf.envs.utils import torch_clone_dict
+
+
+def torch_clone_dict(d):
+    """Deep-clone a (nested) dict of tensors; non-tensors are copied by reference."""
+    if isinstance(d, dict):
+        return {k: torch_clone_dict(v) for k, v in d.items()}
+    return d.clone() if torch.is_tensor(d) else d
 
 
 class LaplacianGymEnv(gym.Env):
