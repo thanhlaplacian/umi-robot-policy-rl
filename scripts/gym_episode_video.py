@@ -35,6 +35,8 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--dense-reward", type=float, default=0.0, help="env reward weight on -min TCP-object distance (0 = sparse success only)")
     ap.add_argument("--model-cfg", default=os.path.join(ROOT, "configs/model/gr00t_n1d7_umi.yaml"))
+    ap.add_argument("--ckpt", default=None, help="override model_path of the model config")
+    ap.add_argument("--tag", default="seed", help="output name tag")
     ap.add_argument("--prompt", default="Pick up the objects on the shelf and place them in the basket")
     a = ap.parse_args()
     logging.getLogger("huggingface_hub").setLevel(logging.CRITICAL)
@@ -46,7 +48,10 @@ def main():
     from umi_rl.envs.laplacian.rl_env import LaplacianRLConfig, LaplacianRLEnv
 
     env = LaplacianRLEnv(LaplacianRLConfig(seed=a.seed, max_episode_steps=a.max_steps, dense_reward=a.dense_reward), num_envs=1, device="cuda:0")
-    model = get_model(OmegaConf.load(a.model_cfg)); model.eval()
+    mcfg = OmegaConf.load(a.model_cfg)
+    if a.ckpt:
+        mcfg.model_path = a.ckpt
+    model = get_model(mcfg); model.eval()
     obs = env.reset(seeds=[a.seed])
     frames, log = [], []
     cum = 0.0
@@ -76,7 +81,7 @@ def main():
     # video (PyAV; h264 if available, else mpeg4)
     import av
     h, w = frames[0].shape[:2]
-    path = os.path.join(a.out, f"episode_seed{a.seed}.mp4")
+    path = os.path.join(a.out, f"episode_{a.tag}{a.seed}.mp4")
     with av.open(path, "w") as cont:
         try:
             stream = cont.add_stream("libx264", rate=15); stream.pix_fmt = "yuv420p"; stream.options = {"crf": "20"}
@@ -89,16 +94,16 @@ def main():
                 cont.mux(pkt)
         for pkt in stream.encode():
             cont.mux(pkt)
-    json.dump({"seed": a.seed, "steps": step, "duration_s": step / 15, "wall_s": wall, "cumulative_reward": cum, "success": log[-1]["success"],
-               "dense_reward_weight": a.dense_reward, "log": log}, open(os.path.join(a.out, f"episode_seed{a.seed}.json"), "w"), indent=1)
+    json.dump({"seed": a.seed, "model_path": str(mcfg.model_path), "steps": step, "duration_s": step / 15, "wall_s": wall, "cumulative_reward": cum, "success": log[-1]["success"],
+               "dense_reward_weight": a.dense_reward, "log": log}, open(os.path.join(a.out, f"episode_{a.tag}{a.seed}.json"), "w"), indent=1)
     # curve
     import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt
     t = [x["t_s"] for x in log]
     fig, ax = plt.subplots(2, 1, figsize=(9, 5.5), sharex=True)
     ax[0].plot(t, [x["cumulative_reward"] for x in log], color="#2a78d6", lw=2); ax[0].set_ylabel("cumulative reward"); ax[0].grid(alpha=.3)
     ax[1].plot(t, [x["min_tcp_object_dist_m"] for x in log], color="#eb6834", lw=2); ax[1].set_ylabel("min TCP-object dist (m)"); ax[1].set_xlabel("time (s) @15 Hz"); ax[1].grid(alpha=.3)
-    ax[0].set_title(f"seed {a.seed}: {step} steps, success={log[-1]['success']}, cumulative reward {cum:+.3f}")
-    fig.tight_layout(); fig.savefig(os.path.join(a.out, f"episode_seed{a.seed}_reward.png"), dpi=110)
+    ax[0].set_title(f"{os.path.basename(os.path.dirname(str(mcfg.model_path)))} seed {a.seed}: {step} steps, success={log[-1]['success']}, cumulative reward {cum:+.3f}")
+    fig.tight_layout(); fig.savefig(os.path.join(a.out, f"episode_{a.tag}{a.seed}_reward.png"), dpi=110)
     print(f"steps={step} ({step/15:.1f}s sim, {wall:.0f}s wall)  success={log[-1]['success']}  cumulative_reward={cum:+.3f}  final_min_dist={log[-1]['min_tcp_object_dist_m']:.3f}  video={path}")
 
 
