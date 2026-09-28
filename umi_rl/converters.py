@@ -46,6 +46,14 @@ def _images_by_view(env_obs: dict) -> dict[str, np.ndarray]:
     for env_key, view in VIEW_KEYS:
         if env_obs.get(env_key) is not None:
             views[view] = _to_numpy(env_obs[env_key])
+    if not views and env_obs.get("wrist_images") is not None:
+        # RLinf sim layout used by the laplacian_gym backend: wrist_images [B, 2, H, W, 3] = (left, right),
+        # main_images = cam_head (optional)
+        w = _to_numpy(env_obs["wrist_images"])
+        assert w.ndim == 5 and w.shape[1] == 2, f"wrist_images must be [B,2,H,W,3], got {w.shape}"
+        views["cam_wrist_left"], views["cam_wrist_right"] = w[:, 0], w[:, 1]
+        if env_obs.get("main_images") is not None:
+            views["cam_head"] = _to_numpy(env_obs["main_images"])
     if not views and env_obs.get("main_images") is not None:
         views[REAL_ENV_VIEW_ORDER[0]] = _to_numpy(env_obs["main_images"])
         extra = env_obs.get("extra_view_images")
