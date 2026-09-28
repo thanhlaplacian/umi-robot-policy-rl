@@ -124,7 +124,6 @@ actor:
     critic_warmup_steps: 0
   fsdp_config:
     strategy: "fsdp"
-    enable_offload: True
     sharding_strategy: "full_shard"
     gradient_checkpointing: True
     use_orig_params: True
