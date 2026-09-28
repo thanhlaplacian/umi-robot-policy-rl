@@ -376,7 +376,7 @@ def prepare_actions(
         chunk_actions = raw_chunk_actions
     elif env_type == SupportedEnvType.LAPLACIAN_GYM:
         # the policy's decoded [N, chunk, 14] per-step EE-local deltas are the env's action space
-        return chunk_actions
+        chunk_actions = raw_chunk_actions
     elif env_type == SupportedEnvType.EMBODICHAIN:
         chunk_actions = raw_chunk_actions
     elif env_type == SupportedEnvType.METAWORLD:
