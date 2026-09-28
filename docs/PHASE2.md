@@ -1,7 +1,8 @@
 # Phase 2: a simulator environment for the policy (laplacian-gym in RLinf)
 
-Status (2026-09-28): the batched env works and the company policy runs closed-loop in it; the
-RLinf PPO stack integration is being smoke-tested. Branch `feature/laplacian-gym-env`.
+Status (2026-09-28): the batched env works, the company policy runs closed-loop in it, and the
+full RLinf PPO loop (env workers -> rollout -> actor FSDP update -> weight sync) completed a
+2-epoch smoke. Branch `feature/laplacian-gym-env`.
 
 ## Decision
 
@@ -35,6 +36,25 @@ trained on (the scene exists only as a 3D Gaussian splat plus an untextured coll
 | Scripted +2 cm x5 along the EE x axis, then back | TCP moved ~6 cm and returned to within 1 cm (servo lag; fine for RL) |
 | Policy closed-loop, 3 chunks | policy 0.2-0.6 s/chunk; TCP-to-nearest-object distance 0.144 -> 0.095 -> 0.062 m |
 | Renders | `/home/thanh/rlinf-runs/logs/umi-rl/gym_smoke/*.png` (fisheye wrists with grippers, basket, objects; pinhole head) |
+
+## RLinf PPO smoke (`configs/rl/laplacian_ppo_gr00t_umi_smoke.yaml`, run `laplacian_ppo_gr00t_umi_smoke`)
+
+Placement env 0-1 (2 workers x 4 envs), rollout 2-3, actor 4-7 (FSDP), 96 steps per rollout
+epoch (6 chunks of 16), 2 epochs, wandb project `finetune-gr00t-n1d7`.
+
+| Item | Value |
+|---|---|
+| Rollout epoch (8 envs x 96 steps, 3 cameras) | 66-70 s (`env/env_interact_step` 64-67 s; render-bound) |
+| Trajectories per epoch | 8, episode_len 96, success 0 (sparse reward, 6.4 s episodes: expected) |
+| Actor update | 4.0-4.6 s per epoch; ratio 1.01-1.02, clip fraction 0.04, approx_kl -0.006 / -0.016 |
+| Losses | policy 0.022 -> 4e-4, value 90.5 -> 10.2 (value head starts from scratch), grad_norm 2770 -> 1280 |
+| Weight sync actor -> rollout | 6.4 s / 2.0 s |
+| Whole run incl. env build and model loads | ~4 min |
+
+Fixes that were needed on the RLinf side (all in the subtree, small): a lazy `.pth` hook so Ray
+workers see `model_type gr00t_n1d7_umi` (`umi_rl/autoregister.py`), the new type added to the
+GR00T N1.7 special cases (`prev_logprobs`, `clip_ratio_c`, rollout batching), and an
+action pass-through branch. The env backend itself needed no change after the standalone smoke.
 
 ## Known gaps
 
