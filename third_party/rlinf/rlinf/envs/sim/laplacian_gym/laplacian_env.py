@@ -29,6 +29,7 @@ class LaplacianGymEnv(gym.Env):
         self.worker_info = worker_info
         self.auto_reset = cfg.auto_reset
         self.use_rel_reward = cfg.use_rel_reward
+        self.reward_scale = float(cfg.get("reward_scale", 1.0))
         self.ignore_terminations = cfg.ignore_terminations
         self.group_size = cfg.group_size
         self.num_group = num_envs // cfg.group_size
@@ -125,6 +126,7 @@ class LaplacianGymEnv(gym.Env):
         return self._wrap_obs(obs), {}
 
     def _calc_step_reward(self, reward):
+        reward = reward * self.reward_scale
         if self.use_rel_reward:
             out = reward - self.prev_step_reward
             self.prev_step_reward = reward

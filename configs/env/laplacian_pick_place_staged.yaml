@@ -1,0 +1,35 @@
+# laplacian-gym shelf -> basket with the staged dense reward (see the reward catalog artifact).
+env_type: laplacian_gym
+total_num_envs: null
+auto_reset: true
+ignore_terminations: false
+use_rel_reward: false
+reward_scale: 0.1                 # stage levels 0.4..18 per step -> O(1) per step, O(10) per 16-step chunk
+seed: 0
+group_size: 1
+use_fixed_reset_state_ids: false
+total_num_group_envs: 10000
+max_steps_per_rollout_epoch: 240  # one full episode per env per rollout epoch (15 chunks of 16)
+max_episode_steps: 240            # 16 s at 15 Hz
+enable_offload: false
+video_cfg:
+  save_video: false
+  info_on_video: false
+  fps: 15
+  video_base_dir: /home/thanh/rlinf-runs/logs/umi-rl/videos
+init_params:
+  scene: configs/livinglab_hq.yaml
+  spawn_count: 2
+  cameras: [cam_wrist_left, cam_wrist_right, cam_head]
+  wrist_hw: [480, 640]
+  settle_s: 0.5
+  ik_iters: 4
+  prompt: "Pick up the objects on the shelf and place them in the basket"
+  reward:
+    staged: true
+    release_bonus: 2.0
+    idle_arm_penalty: 0.05
+    disturb_penalty: 0.5
+    regress_penalty: 2.0
+    success: 13.0
+    completion_bonus: 10.0
