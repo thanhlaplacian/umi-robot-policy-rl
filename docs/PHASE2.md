@@ -56,6 +56,22 @@ workers see `model_type gr00t_n1d7_umi` (`umi_rl/autoregister.py`), the new type
 GR00T N1.7 special cases (`prev_logprobs`, `clip_ratio_c`, rollout batching), and an
 action pass-through branch. The env backend itself needed no change after the standalone smoke.
 
+## Reward (`RewardConfig` in `umi_rl/envs/laplacian/rl_env.py`)
+
+Per-term flags, all off by default (legacy sparse + optional reach term). `staged: true` enables
+the PlaceSphere-style stage overwrite on the active object (reach 2·φ → grasp 4+φ(goal) → lift
+6+φ(goal) → in basket 8 + release_bonus·opening) plus 10 per object already in the basket and
+`success` (13) on completion; `idle_arm_penalty`, `disturb_penalty` and `regress_penalty` add the
+DOSW1 idle-arm term, the digital-twin disturbance term and a latched −w when an object leaves the
+basket. Grasp = finger-geom contact with the object (from `physics.contacts()`) while the gripper
+is commanded closed beyond 0.3; lift = grasped and ≥ 2.5 cm above the reset height. Formulas and
+the catalog they come from: the "Pick-and-Place Reward Catalog" artifact.
+
+Check with the SFT policy (v0.16.9, 240 steps, `--reward '{"staged":true,"idle_arm_penalty":0.1,"disturb_penalty":1.0,"regress_penalty":2.0}'`):
+seed 2 reached the grasp stage for 12 steps and the lift stage for 5 steps (max stage reward 6.02),
+seed 4 the grasp stage for 8 steps; cumulative reward +264 / +259, penalties ≈ 0 (arms near home,
+other object untouched).
+
 ## Known gaps
 
 - Throughput is render-bound (~3 policy steps/s for 2 envs). Batched rendering of more envs is
