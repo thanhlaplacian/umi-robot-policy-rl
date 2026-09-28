@@ -39,3 +39,34 @@ python scripts/steam_label_audit.py                                             
 ```
 
 Status: phase 0 complete (`docs/PHASE0.md`), phase 1 increment 1 complete (`docs/PHASE1.md`).
+
+## Quick start: RL training in the simulator (LaplacianRLEnv)
+
+Everything below runs inside the SFT container (`umi-thanh-maskfix`) so builds never touch the
+shared host; `scripts/in_container.sh` runs a command there from the repo root with the venv on
+PATH. Details and measurements: `docs/PHASE2.md`.
+
+```bash
+# one-time: laplacian-gym core into the umi-rl venv (submodule + LFS assets, mujoco-warp patch,
+# gsplat/nvdiffrast builds). First simulator start then compiles kernels for ~10 min.
+bash scripts/in_container.sh bash scripts/setup_gym.sh
+
+# 1. simulator alone: 100 physics/render steps, 2 envs
+bash scripts/in_container.sh -g 7 bash -c 'cd third_party/laplacian-gym && python -m laplacian_gym.cli run --config configs/livinglab_hq.yaml --steps 100 --num-envs 2'
+
+# 2. env + policy closed-loop smoke: reset, hold, scripted move, 3 policy chunks; saves camera frames
+bash scripts/in_container.sh -g 7 python scripts/gym_env_smoke.py --num-envs 2 --chunks 3
+#    frames -> /home/thanh/rlinf-runs/logs/umi-rl/gym_smoke/*.png
+
+# 3. PPO through RLinf (env 0-1, rollout 2-3, actor 4-7), 2 epochs
+bash scripts/in_container.sh bash -c 'ray start --head --port=6380 --num-cpus=48 --dashboard-host=127.0.0.1 --dashboard-port=8266'
+bash scripts/in_container.sh bash -c 'export RAY_ADDRESS=127.0.0.1:6380; bash scripts/run_rl.sh laplacian_ppo_gr00t_umi_smoke'
+#    logs/tensorboard: /home/thanh/rlinf-runs/logs/umi-rl ; W&B project finetune-gr00t-n1d7
+```
+
+To train for real, copy `configs/rl/laplacian_ppo_gr00t_umi_smoke.yaml`, raise `runner.max_epochs`,
+`env.train.total_num_envs` (must be divisible by the number of env GPUs) and
+`max_steps_per_rollout_epoch` (multiple of 16), and set `save_interval`. Env knobs live in
+`configs/env/laplacian_pick_place.yaml` (`init_params`: `spawn_count`, cameras, `wrist_hw`,
+`dense_reward`, `prompt`). Stop a run with `pkill -f train_rl` inside the container; a run's
+checkpoints export to a fork-loadable directory with `scripts/export_hf_checkpoint.py`.
