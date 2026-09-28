@@ -26,6 +26,8 @@ source "$VENV/bin/activate"
 uv pip install -e "$ROOT/third_party/umi-robot-policy/deps/umi-data-sdk" --no-deps
 uv pip install -e "$ROOT/third_party/rlinf" --no-deps
 uv pip install -e "$ROOT" --no-deps
+# Ray workers never import umi_rl: a .pth hook registers our model type whenever rlinf.models loads
+echo "import umi_rl.autoregister" > "$("$VENV/bin/python" -c 'import sysconfig;print(sysconfig.get_paths()["purelib"])')/umi_rl.pth"
 ln -sfn "$VENV" "$ROOT/.venv"
 python - <<'PY'
 import gr00t, rlinf, umi_data_sdk, torch
