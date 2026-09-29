@@ -96,6 +96,21 @@ the gym's planner demonstrations (`laplacian-gym generate`, same scene, cameras 
 before closing) and gate the grasp stage on it; consider GRPO with fixed reset ids so the rare
 successes are contrasted within a group.
 
+## Which company checkpoint to start from (sim, 8 seeds, one object, eval mode, 2026-09-29)
+
+| Checkpoint | success | seeds w/ grasp | seeds w/ lift | grasp steps | lift steps | mean min dist (m) | mean cum. reward |
+|---|---|---|---|---|---|---|---|
+| v0.16.10 @ 50000 | **1/8** | 4 | 3 | 113 | 45 | 0.097 | 199 |
+| v0.16.13 @ 60000 | 0/8 | 4 | 2 | 70 | 22 | 0.107 | 172 |
+| v0.16.9 @ 3000 | 0/8 | 5 | 2 | 71 | 16 | 0.067 | 201 |
+| v0.15.5 @ 20000 | 0/8 | 0 | 0 | 0 | 0 | 0.224 | 73 |
+| PPO v2 step 120 (from v0.16.9) | 0/8 | 7 | 1 | 135 | 7 | 0.074 | 250 |
+
+v0.16.10@50000 is the only checkpoint that completed the task zero-shot in this protocol and has
+the most lift steps; it is the recommended base for further RL / warm-start. v0.17.x checkpoints
+(arm-active conditioning, COR-200) load under the pinned fork but drop 8 `arm_active_*` tensors,
+so evaluating them faithfully needs the submodule bumped to a post-COR-200 commit.
+
 ## Known gaps
 
 - Throughput is render-bound (~3 policy steps/s for 2 envs). Batched rendering of more envs is
