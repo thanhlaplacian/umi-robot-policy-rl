@@ -51,6 +51,9 @@ class RewardConfig:
     grasp_close_thresh: float = 0.3 # gripper closed fraction above which a finger contact counts as a grasp
     lift_height: float = 0.025      # metres above the reset height that count as lifted
     basket_target_z: float = 0.05   # target point = basket centre XY, rim height + this
+    align_dist: float = 0.04        # object within this distance of the acting TCP counts as "between the fingers"
+    align_bonus: float = 1.0        # added (times phi_20(d)) while aligned and the gripper is still open
+    gate_grasp_on_align: bool = True  # grasp/lift stages require alignment, not just finger contact
     fail_on_fall: bool = True       # terminate with fall_penalty when an object drops below the shelf top
     fall_penalty: float = 2.0
     fall_margin: float = 0.06       # metres below the reset height that count as fallen
@@ -396,19 +399,25 @@ class LaplacianRLEnv:
         acting = d_act.argmin(-1)  # [N]
         idle = 1 - acting
         o_act = o[ar, active]  # [N, 3]
+        d_tcp = d_act.amin(-1)  # acting arm's TCP to the active object
+        aligned = d_tcp < R.align_dist
         g_act = grasp[ar, :, active].any(-1)  # [N]
+        if R.gate_grasp_on_align:
+            g_act = g_act & aligned
         lifted = g_act & ((o_act[:, 2] - self._obj_init_pos[ar, active, 2]) >= R.lift_height)
         in_act = inside[ar, active]
         d_goal = torch.linalg.vector_norm(o_act - self.basket_target, dim=-1)
         u_act = 1.0 - closed[ar, acting]
-        stage = 2.0 * phi(d_act.amin(-1))
+        stage = 2.0 * phi(d_tcp)
+        if R.align_bonus > 0:  # reward getting the object between open fingers before closing
+            stage = stage + R.align_bonus * aligned.float() * (1.0 - torch.tanh(20.0 * d_tcp)) * u_act
         stage = torch.where(g_act, 4.0 + phi(d_goal), stage)
         stage = torch.where(lifted, 6.0 + phi(d_goal), stage)
         stage = torch.where(in_act, 8.0 + R.release_bonus * u_act, stage)
         stage = stage + R.completion_bonus * inside.sum(-1).float()
         stage = torch.where(success, torch.full_like(stage, R.success + R.completion_bonus * (n - 1)), stage)
         reward = stage
-        terms.update({"stage": stage, "grasp": g_act.float(), "lifted": lifted.float(), "d_reach": d_act.amin(-1), "d_goal": d_goal})
+        terms.update({"stage": stage, "grasp": g_act.float(), "lifted": lifted.float(), "aligned": aligned.float(), "d_reach": d_tcp, "d_goal": d_goal})
         if R.idle_arm_penalty > 0:
             q = self.p.qpos[:, torch.from_numpy(self.arm_qadr).to(self.device)].reshape(N, 2, 7)
             dev = ((q - self.q_home[None]) ** 2).sum(-1)  # [N, 2]
