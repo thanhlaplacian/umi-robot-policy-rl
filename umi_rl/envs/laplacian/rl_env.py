@@ -54,6 +54,8 @@ class RewardConfig:
     align_dist: float = 0.04        # object within this distance of the acting TCP counts as "between the fingers"
     align_bonus: float = 1.0        # added (times phi_20(d)) while aligned and the gripper is still open
     gate_grasp_on_align: bool = True  # grasp/lift stages require alignment, not just finger contact
+    align_needs_open: bool = True   # v4 behaviour: align bonus only while the gripper is open (penalizes closing!)
+    close_bonus: float = 0.0        # v5: stage 3 + close_bonus*closed_frac when aligned and closing, before any contact
     fail_on_fall: bool = True       # terminate with fall_penalty when an object drops below the shelf top
     fall_penalty: float = 2.0
     fall_margin: float = 0.06       # metres below the reset height that count as fallen
@@ -409,8 +411,12 @@ class LaplacianRLEnv:
         d_goal = torch.linalg.vector_norm(o_act - self.basket_target, dim=-1)
         u_act = 1.0 - closed[ar, acting]
         stage = 2.0 * phi(d_tcp)
-        if R.align_bonus > 0:  # reward getting the object between open fingers before closing
-            stage = stage + R.align_bonus * aligned.float() * (1.0 - torch.tanh(20.0 * d_tcp)) * u_act
+        if R.align_bonus > 0:  # reward getting the object between the fingers
+            gate_open = u_act if R.align_needs_open else torch.ones_like(u_act)
+            stage = stage + R.align_bonus * aligned.float() * (1.0 - torch.tanh(20.0 * d_tcp)) * gate_open
+        if R.close_bonus > 0:  # reward closing on an aligned object even before contact registers
+            closing = aligned & (closed[ar, acting] > R.grasp_close_thresh)
+            stage = torch.where(closing, 3.0 + R.close_bonus * closed[ar, acting], stage)
         stage = torch.where(g_act, 4.0 + phi(d_goal), stage)
         stage = torch.where(lifted, 6.0 + phi(d_goal), stage)
         stage = torch.where(in_act, 8.0 + R.release_bonus * u_act, stage)
