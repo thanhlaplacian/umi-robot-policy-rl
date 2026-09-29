@@ -111,6 +111,34 @@ the most lift steps; it is the recommended base for further RL / warm-start. v0.
 (arm-active conditioning, COR-200) load under the pinned fork but drop 8 `arm_active_*` tensors,
 so evaluating them faithfully needs the submodule bumped to a post-COR-200 commit.
 
+## v4 / v5 (2026-09-29/30) and the gripper-mapping finding
+
+| Run | Change | Train-time outcome |
+|---|---|---|
+| v3/v3b (from v0.16.10@50000) | reward_scale 0.02, clip_grad 10, critic warm-up; then huber 1, value clip off | critic converged (EV 0.5), KL 0.01-0.03, behaviour flat |
+| v4 | + alignment bonus (object within 4 cm of the acting TCP while the gripper is open), grasp gated on alignment, gamma 0.95 | align_rate 1.8 -> 4.6 %, min distance 9.7 -> 5.5 cm, but lifts vanished: the bonus penalized closing |
+| v5 (overnight, from v4@60) | align bonus independent of gripper state, close-when-aligned stage 3.0, align_dist 5 cm, 32 envs, noise 0.6 | align_rate 9-13 %, grasp contact 0.3-0.6 %, success 2 episodes in 116 epochs |
+
+Evaluation of v5 step 110, 8 seeds, one object, eval mode, with two gripper mappings
+(`LaplacianRLConfig.gripper_mode`):
+
+| Policy | gripper mapping | success | seeds with lift | mean episode length |
+|---|---|---|---|---|
+| v0.16.10 base | linear (`ctrl = -1.0372 g`) | 1/8 | 3 | 210 |
+| v0.16.10 base | boost (`full close when g >= 0.3`) | 2/8 | 0 | 210 |
+| v5 step 110 | linear | 0/8 | 0 | 240 |
+| **v5 step 110** | **boost** | **6/8** | 5 | 172 |
+
+Reading: the RL policy learned to align and to command the gripper (0.44-0.47), but under the
+linear mapping that is a half-closed servo (4 N max) that cannot hold the object; with the boost
+mapping the same policy picks and places in 6/8 seeds (success at 8-15 s), versus 2/8 for the
+base under the same mapping. The gripper command mapping was the last blocker, and RL's
+contribution is real (2/8 -> 6/8). Videos: `gym_episode/episode_ppo5_110_boost_seed*.mp4`.
+
+Next: train with `gripper_mode: boost` in the env (v6) so the reward's grasp/lift stages fire
+during rollouts; then two objects; then transfer checks (is a full-close command acceptable on
+the real gripper, or should the deployment stack apply the same boost).
+
 ## Known gaps
 
 - Throughput is render-bound (~3 policy steps/s for 2 envs). Batched rendering of more envs is
