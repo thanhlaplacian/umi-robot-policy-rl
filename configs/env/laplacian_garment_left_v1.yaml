@@ -10,8 +10,8 @@ seed: 0
 group_size: 1
 use_fixed_reset_state_ids: false
 total_num_group_envs: 10000
-max_steps_per_rollout_epoch: 240   # 15 chunks of 16 = one episode per env per rollout epoch (32 envs -> 60 samples per actor rank, divisible by 96/8)
-max_episode_steps: 240             # 16 s at 15 Hz
+max_steps_per_rollout_epoch: 128   # 8 chunks of 16; flex physics costs ~5 s per batched step, so episodes are short
+max_episode_steps: 128             # 8.5 s at 15 Hz
 enable_offload: false
 video_cfg:
   save_video: false
@@ -30,6 +30,7 @@ init_params:
   ik_iters: 4
   gripper_mode: linear
   jitter_m: 0.02
+  cull_radius: 0.5
   jitter_yaw_deg: 5.0
   reward:
     reach_weight: 2.0
