@@ -153,6 +153,30 @@ def _cull_flex_collisions(xml_path: Path, garment_pos, arm: str, radius: float, 
     return out
 
 
+def _patch_contact_capacity(per_world_contacts: int = 96, per_world_constraints: int = 400):
+    """Scale mujoco-warp's contact/constraint buffers with the batch size.
+
+    ``WarpPhysics`` hard-codes ``make_data(nconmax=256, njmax=2048)`` for the whole batch. A flex
+    garment resting on a shelf alone produces ~40 contacts per world, so 16 worlds overflow the CCD
+    buffer (``warn_overflow CCD``), contacts are dropped and the state goes NaN. Wrap ``make_data`` so
+    the caps grow with ``nworld``."""
+    import laplacian_gym.physics as P
+    mjw = P.mjw
+    if getattr(mjw, "_umi_capacity", False):
+        return
+    orig = mjw.make_data
+
+    def make_data(model, nworld=1, nconmax=256, njmax=2048, njmax_nnz=None, **kw):
+        nconmax = max(nconmax, per_world_contacts * nworld)
+        njmax = max(njmax, per_world_constraints * nworld)
+        if njmax_nnz is not None:
+            njmax_nnz = max(1, njmax * model.nv)
+        return orig(model, nworld=nworld, nconmax=nconmax, njmax=njmax, njmax_nnz=njmax_nnz, **kw)
+
+    mjw.make_data = make_data
+    mjw._umi_capacity = True
+
+
 def _patch_ibl_dtype():
     """livinglab_hq_v2's IBL probe mixes float64 and float32 tensors in ``SplatIBL.__init__``
     (``expected scalar type Double but found Float``); cast the two einsum operands to float32."""
@@ -189,6 +213,7 @@ class GarmentRLEnv(LaplacianRLEnv):
             scene_cfg = replace(scene_cfg, mjcf=_cull_flex_collisions(Path(scene_cfg.mjcf), self.meta["position"], cfg.arm, cfg.cull_radius, cfg.solver_iterations, cfg.ls_iterations))
         if cfg.ibl:
             _patch_ibl_dtype()
+        _patch_contact_capacity()
         self.env = LaplacianEnv(scene_cfg, num_envs=num_envs, device=device, render=render, ibl=cfg.ibl)
         self.p = self.env.physics
         self.model = self.p.cpu_model
