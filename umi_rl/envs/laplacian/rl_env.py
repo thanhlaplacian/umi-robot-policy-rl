@@ -59,6 +59,11 @@ class RewardConfig:
     fail_on_fall: bool = True       # terminate with fall_penalty when an object drops below the shelf top
     fall_penalty: float = 2.0
     fall_margin: float = 0.06       # metres below the reset height that count as fallen
+    # orientation term (item 6): s = |closing axis . pinchable object axis| in [0, 1], see ``orient_score``
+    orient_bonus: float = 0.0       # + w * s * phi(d_tcp) while approaching the active object (before any grasp)
+    orient_gate_align: bool = False # align/close bonuses also require s >= orient_thresh
+    orient_thresh: float = 0.7      # cos(45 deg) = 0.71
+    pinch_max: float = 0.09         # object extents (m) up to this width count as pinchable between the fingers
 
 
 @dataclass
@@ -122,6 +127,8 @@ class LaplacianRLEnv:
         self.arm_act = torch.tensor([names.index(n) for n in ARM_JOINTS], device=self.device)
         self.grip_act = torch.tensor([names.index(f"lpr1/openarm_{s}_hand_base_link__link_1_A") for s in ("right", "left")], device=self.device)
         self.grip_qadr = torch.tensor([m.joint(f"lpr1/openarm_{s}_hand_base_link__link_1_A").qposadr[0] for s in ("right", "left")], device=self.device)
+        # finger slide joints: axis (1,0,0) in their body frame = the closing direction
+        self.grip_body = [int(m.joint(f"lpr1/openarm_{s}_hand_gripper_joint").bodyid[0]) for s in ("right", "left")]
         self.object_bodies = [m.body(slot["body"]).id for slot in self.slots]  # active variant per slot, updated at reset
         self._check = mujoco.MjData(m)
         # geom -> object slot / gripper arm lookups for contact-based grasp detection
@@ -224,7 +231,7 @@ class LaplacianRLEnv:
         from scipy.spatial.transform import Rotation
 
         placed = []
-        bodies = []
+        bodies, dims_out = [], []
         for i, slot in enumerate(self.slots):
             variants = slot.get("variants", [slot])
             chosen = variants[int(rng.integers(len(variants)))]
@@ -250,7 +257,8 @@ class LaplacianRLEnv:
             adr = self.model.joint(chosen["joint"]).qposadr[0]
             qpos_row[adr : adr + 7] = torch.tensor(np.r_[pos, quat], device=self.device, dtype=torch.float32)
             bodies.append(self.model.body(chosen["body"]).id)
-        return bodies
+            dims_out.append(dims)
+        return bodies, dims_out
 
     @torch.no_grad()
     def reset(self, mask: torch.Tensor | None = None, seeds: list[int] | None = None) -> dict:
@@ -265,9 +273,11 @@ class LaplacianRLEnv:
         base_quat = torch.tensor(np.roll(Rotation.from_euler("z", 90.0, degrees=True).as_quat(), 1), device=self.device, dtype=torch.float32)
         if not hasattr(self, "_active_bodies"):
             self._active_bodies = [list(self.object_bodies) for _ in range(N)]
+            self._active_dims = torch.zeros(N, len(self.slots), 3, device=self.device)
         for i in torch.nonzero(mask, as_tuple=True)[0].tolist():
             rng = np.random.default_rng(seeds[i] if seeds is not None else self.rng.integers(2**31))
-            self._active_bodies[i] = self._sample_objects(qpos[i], rng)
+            self._active_bodies[i], dims = self._sample_objects(qpos[i], rng)
+            self._active_dims[i] = torch.tensor(np.stack(dims), device=self.device, dtype=torch.float32)
             mocap_pos[i, mocap_id] = torch.tensor(self._base, device=self.device, dtype=torch.float32)
             mocap_quat[i, mocap_id] = base_quat
         self.env.reset(mask, qpos=qpos, mocap_position=mocap_pos, mocap_quaternion=mocap_quat)
@@ -373,6 +383,27 @@ class LaplacianRLEnv:
         return out[:, : 2 * n].reshape(self.num_envs, 2, n)
 
     @torch.no_grad()
+    @torch.no_grad()
+    def orient_score(self) -> torch.Tensor:
+        """[N, 2, n_obj] in [0, 1]: how well arm k's closing axis lines up with a pinchable axis of object j.
+
+        ``c_k`` = world direction of the finger slide joint. For object j with local box extents ``dims``
+        and world rotation ``R_j``, axis i is pinchable when ``dims_i <= pinch_max`` and it is horizontal
+        (|z component| < 0.5). ``s = min(1, sqrt(sum_i m_i (c_k . R_j e_i)^2))``: a box with one pinchable
+        axis gives |cos|; a standing cylinder (two equal pinchable axes) gives the horizontal component of
+        ``c_k``, i.e. any yaw is fine. 0 when nothing is pinchable.
+        """
+        N, n = self.num_envs, len(self.slots)
+        rot = self.p.body_rot.reshape(N, -1, 3, 3)
+        c = rot[:, self.grip_body][..., :, 0]  # [N, 2, 3] first column = local x in world
+        idx = torch.tensor(self._active_bodies, device=self.device)  # [N, n]
+        Rj = torch.gather(rot, 1, idx[..., None, None].expand(-1, -1, 3, 3))  # [N, n, 3, 3]
+        axes = Rj.transpose(-1, -2)  # [N, n, i, 3] world direction of local axis i
+        pinch = (self._active_dims <= self.cfg.reward.pinch_max) & (axes[..., 2].abs() < 0.5)  # [N, n, 3]
+        dots = torch.einsum("nkd,njid->nkji", c, axes)  # [N, 2, n, 3]
+        s2 = (dots.pow(2) * pinch[:, None].float()).sum(-1)
+        return s2.clamp(max=1.0).sqrt()
+
     def compute_reward(self):
         """Reward per env and the success flag; fills ``self.last_reward_terms`` for logging."""
         R = self.cfg.reward
@@ -410,12 +441,16 @@ class LaplacianRLEnv:
         in_act = inside[ar, active]
         d_goal = torch.linalg.vector_norm(o_act - self.basket_target, dim=-1)
         u_act = 1.0 - closed[ar, acting]
+        s_or = self.orient_score()[ar, acting, active] if (R.orient_bonus > 0 or R.orient_gate_align) else torch.ones_like(d_tcp)
+        oriented = s_or >= R.orient_thresh if R.orient_gate_align else torch.ones_like(aligned)
         stage = 2.0 * phi(d_tcp)
+        if R.orient_bonus > 0:  # reward approaching with the fingers across a pinchable axis
+            stage = stage + R.orient_bonus * s_or * phi(d_tcp)
         if R.align_bonus > 0:  # reward getting the object between the fingers
             gate_open = u_act if R.align_needs_open else torch.ones_like(u_act)
-            stage = stage + R.align_bonus * aligned.float() * (1.0 - torch.tanh(20.0 * d_tcp)) * gate_open
+            stage = stage + R.align_bonus * (aligned & oriented).float() * (1.0 - torch.tanh(20.0 * d_tcp)) * gate_open
         if R.close_bonus > 0:  # reward closing on an aligned object even before contact registers
-            closing = aligned & (closed[ar, acting] > R.grasp_close_thresh)
+            closing = aligned & oriented & (closed[ar, acting] > R.grasp_close_thresh)
             stage = torch.where(closing, 3.0 + R.close_bonus * closed[ar, acting], stage)
         stage = torch.where(g_act, 4.0 + phi(d_goal), stage)
         stage = torch.where(lifted, 6.0 + phi(d_goal), stage)
@@ -423,7 +458,7 @@ class LaplacianRLEnv:
         stage = stage + R.completion_bonus * inside.sum(-1).float()
         stage = torch.where(success, torch.full_like(stage, R.success + R.completion_bonus * (n - 1)), stage)
         reward = stage
-        terms.update({"stage": stage, "grasp": g_act.float(), "lifted": lifted.float(), "aligned": aligned.float(), "d_reach": d_tcp, "d_goal": d_goal})
+        terms.update({"stage": stage, "grasp": g_act.float(), "lifted": lifted.float(), "aligned": aligned.float(), "d_reach": d_tcp, "d_goal": d_goal, "orient": s_or})
         if R.idle_arm_penalty > 0:
             q = self.p.qpos[:, torch.from_numpy(self.arm_qadr).to(self.device)].reshape(N, 2, 7)
             dev = ((q - self.q_home[None]) ** 2).sum(-1)  # [N, 2]

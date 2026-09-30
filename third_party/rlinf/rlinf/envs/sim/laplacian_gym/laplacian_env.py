@@ -75,7 +75,7 @@ class LaplacianGymEnv(gym.Env):
         ids = torch.randint(0, self.total_num_group_envs, (self.num_group,), generator=self._generator)
         self.reset_state_ids = ids.repeat_interleave(self.group_size).to(self.device)
 
-    _TERM_KEYS = ("grasp", "lifted", "aligned", "stage", "n_in", "idle_pen", "disturb_pen")
+    _TERM_KEYS = ("grasp", "lifted", "aligned", "stage", "n_in", "idle_pen", "disturb_pen", "orient")
 
     def _init_metrics(self):
         self.success_once = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
@@ -118,6 +118,7 @@ class LaplacianGymEnv(gym.Env):
         ep["grasp_rate"] = self._term_sum["grasp"] / L
         ep["lift_rate"] = self._term_sum["lifted"] / L
         ep["align_rate"] = self._term_sum["aligned"] / L
+        ep["orient_mean"] = self._term_sum["orient"] / L
         ep["stage_mean"] = self._term_sum["stage"] / L
         ep["stage_max"] = self._term_max["stage"].clone()
         ep["objects_in_basket_max"] = self._term_max["n_in"].clone()
