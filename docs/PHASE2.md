@@ -139,6 +139,21 @@ Next: train with `gripper_mode: boost` in the env (v6) so the reward's grasp/lif
 during rollouts; then two objects; then transfer checks (is a full-close command acceptable on
 the real gripper, or should the deployment stack apply the same boost).
 
+## v6 / v6b (boost mapping inside the env), 2026-09-30
+
+| Run | Setup | Train-time success / epoch | Eval (16 seeds, boost, one object) |
+|---|---|---|---|
+| v5@110 (reference) | – | – | **9/16** |
+| v6 | from v5@110, noise 0.6, lr 2e-5, 2 update epochs | 0-9 % | 2/8 at step 20 (regressed: lifts but misses the basket) |
+| v6b | from v5@110, noise 0.3, lr 1e-5, 1 update epoch | 3-16 %, slowly rising | 9/16 at step 20, 6/16 at step 40 |
+
+Reading: with the boost mapping, grasps and lifts appear in rollouts (lift 2-8 % of steps) and every
+epoch has successes, but the eval success of the checkpoints does not exceed v5@110; the 16-seed
+protocol has a ±3 spread so the differences are within noise. The best policy so far remains
+v5@110 + boost at ~56 % single-object success. Exploration noise in train-mode rollouts (flow-SDE
+0.3-0.6) breaks the precise grasp/place, which is why train-time success (5-15 %) sits far below
+eval and why the advantage signal is weak.
+
 ## Known gaps
 
 - Throughput is render-bound (~3 policy steps/s for 2 envs). Batched rendering of more envs is
