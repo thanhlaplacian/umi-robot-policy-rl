@@ -153,7 +153,7 @@ def _cull_flex_collisions(xml_path: Path, garment_pos, arm: str, radius: float, 
     return out
 
 
-def _patch_contact_capacity(per_world_ccd: int = 16384):
+def _patch_contact_capacity(per_world_ccd: int = 8192):
     """Enlarge mujoco-warp's flex CCD buffers.
 
     ``nconmax``/``njmax`` are per world in this mujoco-warp (the gym's 256/2048 are fine), but the CCD
@@ -168,10 +168,13 @@ def _patch_contact_capacity(per_world_ccd: int = 16384):
         return
     orig = mjw.make_data
 
-    def make_data(model, nworld=1, **kw):
+    def make_data(model, nworld=1, nconmax=256, **kw):
+        # naccdmax must be <= naconmax (= nconmax * nworld unless given), so raise both together
+        nconmax = max(nconmax, per_world_ccd)
+        kw.setdefault("naconmax", nconmax * nworld)
         kw.setdefault("nccdmax", per_world_ccd)
         kw.setdefault("naccdmax", per_world_ccd * nworld)
-        return orig(model, nworld=nworld, **kw)
+        return orig(model, nworld=nworld, nconmax=nconmax, **kw)
 
     mjw.make_data = make_data
     mjw._umi_capacity = True
