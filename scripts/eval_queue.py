@@ -45,8 +45,14 @@ def main():
     ap.add_argument("--env-cfg", default='{"spawn_count":1,"gripper_mode":"boost","gripper_thresh":0.3}')
     ap.add_argument("--reward", default=json.dumps(REWARD_V5)); ap.add_argument("--extra", default="", help="extra gym_episode_video.py args")
     ap.add_argument("--summary", default=None, help="comma-separated tags to summarise instead of launching")
+    ap.add_argument("--task", default="pick_place", choices=["pick_place", "garment"], help="garment: one 'object' (the garment), no object_types, --task garment forwarded")
     a = ap.parse_args()
     objects, seeds, gpus = a.objects.split(","), rng(a.seeds), rng(a.gpus)
+    if a.task == "garment":
+        objects = ["garment"]
+        if a.reward == json.dumps(REWARD_V5):
+            a.reward = "{}"
+        a.extra = (a.extra + " --task garment").strip()
     if a.summary:
         return summary(a.summary.split(","), objects, seeds)
     jobs = [(o, s) for o in objects for s in seeds]
@@ -56,7 +62,7 @@ def main():
         mine = jobs[gi::len(gpus)]
         lines = ["#!/bin/bash"]
         for o, s in mine:
-            ecfg = json.dumps({**base, "object_types": [o]})
+            ecfg = json.dumps(base if a.task == "garment" else {**base, "object_types": [o]})
             log = f"/home/thanh/rlinf-runs/logs/lgym-ep-{a.tag}-{o}-s{s}.log"
             lines.append(f"timeout 3000 python scripts/gym_episode_video.py --seed {s} --tag {a.tag}_{o}_seed --ckpt {a.ckpt} --reward '{a.reward}' --env-cfg '{ecfg}' {a.extra} > {log} 2>&1 < /dev/null")
         qf = f"{QDIR}/{a.tag}_gpu{g}.sh"

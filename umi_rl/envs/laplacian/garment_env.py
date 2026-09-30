@@ -76,6 +76,10 @@ class GarmentRLConfig:
     gripper_mode: str = "linear"                   # linear | binary | boost
     gripper_thresh: float = 0.3
     prompt: str | None = None                      # None = PROMPTS[arm]
+    ibl: bool = True                               # image-based lighting from the splat (gym default)
+    cull_radius: float = 1.5                       # >0: the garment only collides with the grasping hand and scan geoms within this radius (m) of its spawn
+    solver_iterations: int | None = None           # override <option iterations> (scene default 30) for throughput experiments
+    ls_iterations: int | None = None               # override <option ls_iterations> (scene default 50)
     seed: int = 0
     reward: GarmentRewardConfig = field(default_factory=GarmentRewardConfig)
 
@@ -86,6 +90,79 @@ class GarmentRLConfig:
             raise ValueError("arm must be left or right")
         if self.prompt is None:
             self.prompt = PROMPTS[self.arm]
+
+
+def _cull_flex_collisions(xml_path: Path, garment_pos, arm: str, radius: float, iterations=None, ls_iterations=None) -> Path:
+    """Derive a scene where the flex garment collides only with the grasping hand and nearby scan geoms.
+
+    The composed livinglab_hq_v2 scene has ~23k scan collision boxes and 56 robot meshes; mujoco-warp
+    tests the flex against all of them every 0.25 ms substep (measured 30 ms/substep). Collision bit 2 is
+    given to the flex, to the geoms of ``lpr1/openarm_<arm>_hand*`` bodies and to scan geoms within
+    ``radius`` of the garment spawn; everything else keeps bit 1 only, so robot/scene collisions are
+    unchanged. Written next to the gym's cached scene, content-addressed by the inputs.
+    """
+    import hashlib
+    import xml.etree.ElementTree as ET
+
+    tag = f"{radius:g}_{hashlib.sha1(np.asarray(garment_pos, dtype=np.float64).round(3).tobytes()).hexdigest()[:8]}"
+    if iterations is not None or ls_iterations is not None:
+        tag += f"_it{iterations}_ls{ls_iterations}"
+    out = xml_path.with_name(f"{xml_path.stem}_cull_{arm}_{tag}.xml")
+    if out.exists() and out.stat().st_mtime >= xml_path.stat().st_mtime:
+        return out
+    tree = ET.parse(xml_path)
+    root = tree.getroot()
+    for fc in root.iter("flexcomp"):
+        ct = fc.find("contact")
+        if ct is None:
+            ct = ET.SubElement(fc, "contact")
+        ct.set("contype", "2"); ct.set("conaffinity", "2")
+    g0 = np.asarray(garment_pos, dtype=np.float64)
+    n_hand = n_near = n_far = 0
+
+    def bump(geom):
+        geom.set("contype", str(int(geom.get("contype", "1")) | 2)); geom.set("conaffinity", str(int(geom.get("conaffinity", "1")) | 2))
+
+    def walk(body, origin, hand):
+        nonlocal n_hand, n_near, n_far
+        for child in body:
+            if child.tag == "geom":
+                if child.get("contype", "1") == "0" and child.get("conaffinity", "1") == "0":
+                    continue
+                if hand:
+                    bump(child); n_hand += 1
+                elif (child.get("name") or "").startswith("scan/") or body.tag == "worldbody":
+                    pos = origin + np.fromstring(child.get("pos", "0 0 0"), sep=" ")
+                    if np.linalg.norm(pos - g0) <= radius:
+                        bump(child); n_near += 1
+                    else:
+                        n_far += 1
+            elif child.tag == "body":
+                name = child.get("name", "")
+                walk(child, origin + np.fromstring(child.get("pos", "0 0 0"), sep=" "), hand or f"openarm_{arm}_hand" in name)
+
+    walk(root.find("worldbody"), np.zeros(3), False)
+    opt = root.find("option")
+    if opt is not None:
+        if iterations is not None:
+            opt.set("iterations", str(int(iterations)))
+        if ls_iterations is not None:
+            opt.set("ls_iterations", str(int(ls_iterations)))
+    tree.write(out, encoding="unicode")
+    print(f"[garment_env] culled scene: {n_hand} hand geoms + {n_near} nearby scan geoms collide with the garment; {n_far} scan geoms excluded -> {out.name}")
+    return out
+
+
+def _patch_ibl_dtype():
+    """livinglab_hq_v2's IBL probe mixes float64 and float32 tensors in ``SplatIBL.__init__``
+    (``expected scalar type Double but found Float``); cast the two einsum operands to float32."""
+    import laplacian_gym.rendering.lighting as L
+    if getattr(L, "_umi_f32", False):
+        return
+    sh, srgb = L.sh_basis, L.srgb_to_linear
+    L.sh_basis = lambda d: sh(d.float() if torch.is_tensor(d) else d).float()
+    L.srgb_to_linear = lambda x: srgb(x.float() if torch.is_tensor(x) else x)
+    L._umi_f32 = True
 
 
 class GarmentRLEnv(LaplacianRLEnv):
@@ -107,7 +184,12 @@ class GarmentRLEnv(LaplacianRLEnv):
         scene_cfg, self.meta = build_jeans_scene(
             str(root / cfg.scene), sku=cfg.sku, shelf=cfg.shelf, along=cfg.along, overhang=cfg.overhang,
             yaw_degrees=yaw, stack_count=cfg.stack_count, arm=cfg.arm, physics_hz=cfg.physics_hz)
-        self.env = LaplacianEnv(scene_cfg, num_envs=num_envs, device=device, render=render)
+        if cfg.cull_radius > 0:
+            from dataclasses import replace
+            scene_cfg = replace(scene_cfg, mjcf=_cull_flex_collisions(Path(scene_cfg.mjcf), self.meta["position"], cfg.arm, cfg.cull_radius, cfg.solver_iterations, cfg.ls_iterations))
+        if cfg.ibl:
+            _patch_ibl_dtype()
+        self.env = LaplacianEnv(scene_cfg, num_envs=num_envs, device=device, render=render, ibl=cfg.ibl)
         self.p = self.env.physics
         self.model = self.p.cpu_model
         m = self.model
@@ -246,9 +328,13 @@ class GarmentRLEnv(LaplacianRLEnv):
                                    self.arm_range[7 * self.k_active : 7 * self.k_active + 7, 1])
         qpos = torch.from_numpy(rows).to(self.device)
         self.env.reset(mask, qpos=qpos)
-        n = int(round(self.cfg.settle_s * self.cfg.physics_hz))
-        if n:
-            self.p.step(self.p.ctrl.clone(), n)
+        # settle in control-frame chunks: WarpPhysics captures one CUDA graph per distinct substep
+        # count, and a 4000-substep graph takes many minutes to capture; the 267-step graph is the
+        # one every control step reuses anyway.
+        n = int(round(self.cfg.settle_s * self.cfg.physics_hz / self.frame_steps))
+        ctrl = self.p.ctrl.clone()
+        for _ in range(n):
+            self.p.step(ctrl, self.frame_steps)
         pts = self.p.flex_position[:, self.slices[TARGET]]
         self._init_points[mask] = pts[mask]
         self._init_z[mask] = pts[mask, :, 2].mean(-1)
