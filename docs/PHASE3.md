@@ -59,3 +59,28 @@ much, so it is the flex/nv=366 kernels themselves. For RL that means ~25 min per
 envs per worker; the overnight garment PPO is therefore a 12-epoch pipeline demonstration, not a
 converged run.
 
+## 4. Company IL checkpoint for the garment task, evaluated in the new env
+
+Choice: **UMICore-v0.17.9/checkpoint-30000** (converged, first run whose mix contains the W40 lpr1
+"garment on the shelf" teleop sets, ~4.6 % weight; v0.17.11 has more weight but is mid-run). Control:
+v0.16.10@50000, which has zero garment-shelf data. Prompt, verbatim from the dataset: "Pick up the
+garment on the shelf. the left arm grasps and the right arm does nothing". Protocol: single package,
+rack A shelf 3, gym A3 placement ranges, 150 steps (10 s), eval mode, one episode per GPU.
+
+| checkpoint | seeds | success | closest TCP-garment (m) | pad contacts | gripper closes |
+|---|---|---|---|---|---|
+| UMICore-v0.17.9@30000 | 7 | 0/7 | 0.032-0.055 | 0 | max cmd 0.10 |
+| UMICore-v0.16.10@50000 (no garment-shelf data) | 3 | 0/3 | 0.036-0.048 | 0 | max cmd 0.50 |
+
+Both policies drive the left arm to the package's aisle-side edge in a side-pick posture and then hold
+3-10 cm short of it with the gripper open for the rest of the episode; no pad ever touches the garment.
+v0.17.9 seed 5 crashed in the pose-to-rotvec conversion on a NaN physics state (fixed: NaN counts as a
+failed episode). Videos: `episode_v0179_garment_left_garment_seed<s>.mp4`,
+`episode_v01610_garment_left_garment_seed<s>.mp4`. Two placement variants (front overhang 8 cm,
+quarter turn) were queued for v0.17.9 seed 0 to see whether the approach completes with a different
+package pose.
+
+Reading: the sim scene is not yet close enough to the W40 teleop scenes for the policy to commit to the
+insertion (a 4 kHz flex package with 2 mm rubber pads whose side-pry presets the gym authors say all
+failed after the pads were added). The RL run below starts from this hovering behaviour.
+
