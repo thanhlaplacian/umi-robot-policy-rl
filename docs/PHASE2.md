@@ -170,6 +170,31 @@ Balanced estimate ~40 % rather than 56 %. Boxes fail at the grasp: the policy al
 but the closing yaw/approach does not match the pinchable axis. Evaluation from now on must be
 balanced per object (`--env-cfg '{"object_types":["ROB-001"]}'` etc.).
 
+## Balanced per-object protocol: v6b@90 vs v5@110 (2026-09-30, 8 seeds x 3 objects, boost, eval mode)
+
+Object type fixed via `object_types`, seeds 0-7 each, one episode per GPU (two per GPU OOM next to
+the running trainer). Fixing the type changes the RNG stream, so these are different spawn poses
+from the "seed set" table above.
+
+| Policy | ROB-001 | ROB-003 | RTC-001 | All 24 | lifts |
+|---|---|---|---|---|---|
+| v5@110 + boost | 2/8 | 1/8 | 2/8 | 5/24 (21 %) | 9/24 |
+| v6b@90 + boost | 1/8 | 1/8 | 2/8 | 4/24 (17 %) | 10/24 |
+
+Observations:
+
+- RTC-001 drops from 9/10 (seed-set poses) to 2/8 (fixed-type poses) for the same v5@110 policy;
+  pooled 11/18. Single-object success is strongly pose dependent, so 8 seeds per cell is +-2.
+- v6b (boost inside the env, noise 0.3, lr 1e-5, from v5@110) does not improve over its start
+  after 90 epochs. Train-mode success stays 0-15 %/epoch (mean 7 % over the first 30 epochs, 6 %
+  over epochs 60-90), lift rate 1-7 %. The run continues to 120 for completeness.
+- Honest phase-2 number for the best policy (v5@110 + boost): ~20-40 % single-object success
+  depending on pose draw, dominated by the cylinder; boxes ~15-25 %.
+
+Conclusion for the RL-only path: PPO from the SFT checkpoint with flow-SDE exploration has
+plateaued. The grasp on boxes needs a demonstration signal (warm-start SFT on `laplacian-gym
+generate` demos, or the fork's AWR on labelled sim episodes) before more PPO epochs are useful.
+
 ## Known gaps
 
 - Throughput is render-bound (~3 policy steps/s for 2 envs). Batched rendering of more envs is
