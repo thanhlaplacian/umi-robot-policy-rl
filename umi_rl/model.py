@@ -183,7 +183,41 @@ def _model_class():
     return _MODEL_CLS
 
 
+def _rl_cond_add(self, vl_embs, state_features, embodiment_id, backbone_output):
+    """The fork's DiT ``cond_add`` addend, rebuilt for RLinf's train-mode sampler.
+
+    RLinf's ``sample_mean_var_val`` calls the DiT without ``cond_add`` (the upstream N1.7
+    DiT has no such slot), which on the company fork silently drops the embodiment row,
+    the progress-conditioning row and (v0.17+) the arm-active rows that the fork's own
+    ``get_action`` (our eval path) sums in. Mirrors ``get_action_with_features``:
+    memory -> embodiment -> progress (fed back from the progress head) -> arm-active
+    (fed back from the arm-active head). Predictions are recomputed per call; they
+    depend only on the VL features so they are identical across denoising steps.
+    """
+    base = backbone_output.get("mem_cond_add", None) if backbone_output is not None else None
+    cond = self._embodiment_cond(base, embodiment_id, vl_embs.dtype)
+    attn = getattr(backbone_output, "backbone_attention_mask", None)
+    if getattr(self, "progress_cond_encoder", None) is not None:
+        if getattr(self, "progress_head", None) is None:
+            raise RuntimeError("use_progress_conditioning without a progress head; nothing to feed back")
+        logits, ok = self._progress_logits(vl_embs, attn)
+        pred = torch.where(ok, torch.sigmoid(logits), logits.new_full((), float("nan")))
+        cond = self._progress_cond(cond, pred, ok, vl_embs.dtype)
+    if getattr(self, "arm_active_cond_embedding", None) is not None:
+        from gr00t.model.gr00t_n1d7.gr00t_n1d7 import arm_active_cond_value
+        if getattr(self, "arm_active_head", None) is None:
+            raise RuntimeError("use_arm_active_conditioning without an arm-active head; nothing to feed back")
+        arm_logits, arm_ok = self._arm_active_logits(vl_embs, attn)
+        arm_pred = torch.where(arm_ok.unsqueeze(-1), torch.sigmoid(arm_logits), arm_logits.new_full((), float("nan")))
+        arm_value, arm_null = arm_active_cond_value(arm_pred, torch.isfinite(arm_pred))
+        rows = self._arm_active_cond_rows(arm_value.device)
+        cond = self._arm_active_cond(cond, arm_value, arm_null, rows, vl_embs.dtype)
+    return cond
+
+
 def register() -> None:
+    from rlinf.models.embodiment.gr00t.gr00t_n1d7.gr00t_action_model import FlowMatchingActionHeadForRLActionPrediction as _Head
+    _Head.rl_cond_add = _rl_cond_add
     from rlinf.models import register_model
 
     register_model(MODEL_TYPE, get_model, category="embodied", force=True)

@@ -481,6 +481,16 @@ class FlowMatchingActionHeadForRLActionPrediction(Gr00tN1d7ActionHead):
         sa_embs = torch.cat((state_features, action_features), dim=1)
 
         denoising_model = self._get_component("model")
+        # Optional conditioning addend for the DiT's ``cond_add`` slot (embodiment /
+        # progress / arm-active rows in forks whose DiT has one). ``rl_cond_add`` is a
+        # hook a model integration may define; the upstream N1.7 DiT has no such slot
+        # and the hook is absent, so the call below is unchanged for it.
+        cond_kwargs = {}
+        rl_cond_add = getattr(self, "rl_cond_add", None)
+        if rl_cond_add is not None:
+            cond_add = rl_cond_add(vl_embs, state_features, embodiment_id, backbone_output)
+            if cond_add is not None:
+                cond_kwargs["cond_add"] = cond_add
         if denoising_model is not None:
             if (
                 getattr(self.config, "use_alternate_vl_dit", False)
@@ -492,12 +502,14 @@ class FlowMatchingActionHeadForRLActionPrediction(Gr00tN1d7ActionHead):
                     timestep=timesteps_tensor,
                     image_mask=backbone_output.image_mask,
                     backbone_attention_mask=backbone_output.backbone_attention_mask,
+                    **cond_kwargs,
                 )
             else:
                 model_output = denoising_model(
                     hidden_states=sa_embs,
                     encoder_hidden_states=vl_embs,
                     timestep=timesteps_tensor,
+                    **cond_kwargs,
                 )
         else:
             model_output = sa_embs
