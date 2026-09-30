@@ -489,7 +489,8 @@ class LaplacianRLEnv:
         if not hasattr(self, "_obj_init_pos"):
             return torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
         dropped = (self._obj_init_pos[..., 2] - o[..., 2]) > self.cfg.reward.fall_margin
-        return (dropped & ~self.in_basket(o)).any(-1)
+        blown = ~torch.isfinite(self.p.qpos).all(-1)  # physics NaN counts as a failed episode
+        return (dropped & ~self.in_basket(o)).any(-1) | blown
 
     @torch.no_grad()
     def in_basket(self, o: torch.Tensor) -> torch.Tensor:
@@ -515,5 +516,6 @@ class LaplacianRLEnv:
 
 
 def _rotvec_np(R: np.ndarray) -> np.ndarray:
-
+    if not np.isfinite(R).all():
+        return np.zeros(3)  # a NaN pose (physics blow-up) must not crash the episode; fallen() reports it
     return Rotation.from_matrix(R).as_rotvec()

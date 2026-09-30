@@ -408,7 +408,8 @@ class GarmentRLEnv(LaplacianRLEnv):
     @torch.no_grad()
     def fallen(self) -> torch.Tensor:
         z = self.garment_points()[:, :, 2].mean(-1)
-        return z < self._init_z - self.cfg.reward.drop_margin
+        blown = ~torch.isfinite(self.p.qpos).all(-1) | ~torch.isfinite(z)
+        return (z < self._init_z - self.cfg.reward.drop_margin) | blown
 
     @torch.no_grad()
     def in_basket(self, o):  # no basket in this task
