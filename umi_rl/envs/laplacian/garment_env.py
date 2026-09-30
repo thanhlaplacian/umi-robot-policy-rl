@@ -153,25 +153,25 @@ def _cull_flex_collisions(xml_path: Path, garment_pos, arm: str, radius: float, 
     return out
 
 
-def _patch_contact_capacity(per_world_contacts: int = 96, per_world_constraints: int = 400):
-    """Scale mujoco-warp's contact/constraint buffers with the batch size.
+def _patch_contact_capacity(per_world_ccd: int = 16384):
+    """Enlarge mujoco-warp's flex CCD buffers.
 
-    ``WarpPhysics`` hard-codes ``make_data(nconmax=256, njmax=2048)`` for the whole batch. A flex
-    garment resting on a shelf alone produces ~40 contacts per world, so 16 worlds overflow the CCD
-    buffer (``warn_overflow CCD``), contacts are dropped and the state goes NaN. Wrap ``make_data`` so
-    the caps grow with ``nworld``."""
+    ``nconmax``/``njmax`` are per world in this mujoco-warp (the gym's 256/2048 are fine), but the CCD
+    candidate buffer ``naccdmax`` defaults to ``nconmax * nworld`` and overflows as soon as the hand
+    meshes (thousands of faces) touch the flex garment ("CCD overflow in flex narrowphase - please
+    increase naccdmax"), after which contacts are dropped and the state goes NaN. Wrap ``make_data`` to
+    allocate ``per_world_ccd`` CCD contacts per world.
+    """
     import laplacian_gym.physics as P
     mjw = P.mjw
     if getattr(mjw, "_umi_capacity", False):
         return
     orig = mjw.make_data
 
-    def make_data(model, nworld=1, nconmax=256, njmax=2048, njmax_nnz=None, **kw):
-        nconmax = max(nconmax, per_world_contacts * nworld)
-        njmax = max(njmax, per_world_constraints * nworld)
-        if njmax_nnz is not None:
-            njmax_nnz = max(1, njmax * model.nv)
-        return orig(model, nworld=nworld, nconmax=nconmax, njmax=njmax, njmax_nnz=njmax_nnz, **kw)
+    def make_data(model, nworld=1, **kw):
+        kw.setdefault("nccdmax", per_world_ccd)
+        kw.setdefault("naccdmax", per_world_ccd * nworld)
+        return orig(model, nworld=nworld, **kw)
 
     mjw.make_data = make_data
     mjw._umi_capacity = True
