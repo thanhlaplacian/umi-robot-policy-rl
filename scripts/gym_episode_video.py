@@ -39,7 +39,8 @@ def main():
     ap.add_argument("--ckpt", default=None, help="override model_path of the model config")
     ap.add_argument("--tag", default="seed", help="output name tag")
     ap.add_argument("--env-cfg", default=None, help='JSON LaplacianRLConfig overrides, e.g. \'{"gripper_mode":"binary","spawn_count":1}\'')
-    ap.add_argument("--prompt", default="Pick up the objects on the shelf and place them in the basket")
+    ap.add_argument("--prompt", default=None, help="default: the task's prompt (rigid pick-place, or the garment env's per-arm prompt)")
+    ap.add_argument("--task", default="pick_place", choices=["pick_place", "garment"])
     a = ap.parse_args()
     logging.getLogger("huggingface_hub").setLevel(logging.CRITICAL)
     os.makedirs(a.out, exist_ok=True)
@@ -51,7 +52,13 @@ def main():
 
     rcfg = json.loads(a.reward) if a.reward else {}
     ecfg = json.loads(a.env_cfg) if a.env_cfg else {}
-    env = LaplacianRLEnv(LaplacianRLConfig(seed=a.seed, max_episode_steps=a.max_steps, dense_reward=a.dense_reward, reward=rcfg, **ecfg), num_envs=1, device="cuda:0")
+    if a.task == "garment":
+        from umi_rl.envs.laplacian.garment_env import GarmentRLConfig, GarmentRLEnv
+        env = GarmentRLEnv(GarmentRLConfig(seed=a.seed, max_episode_steps=a.max_steps, reward=rcfg, **ecfg), num_envs=1, device="cuda:0")
+        a.prompt = a.prompt or env.cfg.prompt
+    else:
+        env = LaplacianRLEnv(LaplacianRLConfig(seed=a.seed, max_episode_steps=a.max_steps, dense_reward=a.dense_reward, reward=rcfg, **ecfg), num_envs=1, device="cuda:0")
+        a.prompt = a.prompt or "Pick up the objects on the shelf and place them in the basket"
     mcfg = OmegaConf.load(a.model_cfg)
     if a.ckpt:
         mcfg.model_path = a.ckpt

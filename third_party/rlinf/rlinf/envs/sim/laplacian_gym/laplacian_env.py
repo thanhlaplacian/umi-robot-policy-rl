@@ -40,8 +40,15 @@ class LaplacianGymEnv(gym.Env):
         params = OmegaConf.to_container(cfg.init_params, resolve=True) if cfg.get("init_params") is not None else {}
         params.setdefault("seed", self.seed)
         params.setdefault("max_episode_steps", cfg.max_episode_steps)
-        self.prompt = params.pop("prompt", "Pick up the objects on the shelf and place them in the basket")
-        self.env = LaplacianRLEnv(LaplacianRLConfig(**params), num_envs=num_envs, device="cuda:0")
+        task = params.pop("task", "pick_place")
+        if task == "garment":
+            from umi_rl.envs.laplacian.garment_env import GarmentRLConfig, GarmentRLEnv
+            prompt = params.pop("prompt", None)
+            self.env = GarmentRLEnv(GarmentRLConfig(**params, prompt=prompt), num_envs=num_envs, device="cuda:0")
+            self.prompt = self.env.cfg.prompt
+        else:
+            self.prompt = params.pop("prompt", "Pick up the objects on the shelf and place them in the basket")
+            self.env = LaplacianRLEnv(LaplacianRLConfig(**params), num_envs=num_envs, device="cuda:0")
         self.total_num_group_envs = int(cfg.get("total_num_group_envs", 10_000))  # seed pool for episodes
         self._elapsed = torch.zeros(num_envs, device=self.device, dtype=torch.long)
         self.prev_step_reward = torch.zeros(num_envs, device=self.device, dtype=torch.float32)
