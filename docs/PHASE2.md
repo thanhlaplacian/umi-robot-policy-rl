@@ -154,6 +154,22 @@ v5@110 + boost at ~56 % single-object success. Exploration noise in train-mode r
 0.3-0.6) breaks the precise grasp/place, which is why train-time success (5-15 %) sits far below
 eval and why the advantage signal is weak.
 
+## Per-object success (v5@110 + boost, one object, eval mode), 2026-09-30
+
+The evaluation seeds 0-15 draw the object variant with `default_rng(seed).integers(3)`, which happens
+to give 10 RTC-001 (cylinder), 4 ROB-003 and 2 ROB-001; training uses random 31-bit seeds and is
+uniform (32/35/34 %). Successes were almost all on the cylinder:
+
+| Object | success | aligned seeds | grasp seeds | lift seeds |
+|---|---|---|---|---|
+| RTC-001 (cylinder, 6.2 cm, pinchable at any yaw) | 9/10 (seed set) | – | – | – |
+| ROB-001 (small box 6.5 x 5.8 x 10.7 cm) | 2/8 | 7 | 4 | 3 |
+| ROB-003 (flat box 13.7 x 7.5 x 4.0 cm) | 1/8 | 7 | 2 | 2 |
+
+Balanced estimate ~40 % rather than 56 %. Boxes fail at the grasp: the policy aligns on them (7/8)
+but the closing yaw/approach does not match the pinchable axis. Evaluation from now on must be
+balanced per object (`--env-cfg '{"object_types":["ROB-001"]}'` etc.).
+
 ## Known gaps
 
 - Throughput is render-bound (~3 policy steps/s for 2 envs). Batched rendering of more envs is
