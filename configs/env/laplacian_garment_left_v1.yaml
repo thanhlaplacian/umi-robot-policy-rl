@@ -1,0 +1,45 @@
+# Garment-on-shelf pick (laplacian-gym flex garment, livinglab_hq_v2, rack A shelf 3, single package, left arm).
+# Prompt is the W40 lpr1 dataset string for the left arm (set by the env from `arm`).
+env_type: laplacian_gym
+total_num_envs: null
+auto_reset: true
+ignore_terminations: false
+use_rel_reward: false
+reward_scale: 0.02
+seed: 0
+group_size: 1
+use_fixed_reset_state_ids: false
+total_num_group_envs: 10000
+max_steps_per_rollout_epoch: 224   # 14 chunks of 16 = one episode per env per rollout epoch
+max_episode_steps: 224             # ~15 s at 15 Hz
+enable_offload: false
+video_cfg:
+  save_video: false
+  info_on_video: false
+  fps: 15
+  video_base_dir: /home/thanh/rlinf-runs/logs/umi-rl/videos
+init_params:
+  task: garment
+  scene: configs/livinglab_hq_v2.yaml
+  shelf: scan/rack_a_shelf_3
+  sku: packaged_jeans_1
+  stack_count: 1
+  arm: left
+  cameras: [cam_wrist_left, cam_wrist_right, cam_head]
+  settle_s: 1.0
+  ik_iters: 4
+  gripper_mode: linear
+  jitter_m: 0.02
+  jitter_yaw_deg: 5.0
+  reward:
+    reach_weight: 2.0
+    pad_stage: 3.0
+    grasp_stage: 4.0
+    lift_weight: 4.0
+    lift_height: 0.07
+    lifted_stage: 8.0
+    success: 13.0
+    hold_steps: 3
+    idle_arm_penalty: 0.05
+    fail_on_fall: true
+    fall_penalty: 2.0
