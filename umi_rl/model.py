@@ -14,7 +14,8 @@ from pathlib import Path
 
 import torch
 from omegaconf import DictConfig
-from rlinf.utils.logging import get_logger, OmegaConf
+from omegaconf import OmegaConf
+from rlinf.utils.logging import get_logger
 
 from umi_rl import compat, converters, embodiment
 
