@@ -10,8 +10,8 @@ seed: 0
 group_size: 1
 use_fixed_reset_state_ids: false
 total_num_group_envs: 10000
-max_steps_per_rollout_epoch: 224   # 14 chunks of 16 = one episode per env per rollout epoch
-max_episode_steps: 224             # ~15 s at 15 Hz
+max_steps_per_rollout_epoch: 240   # 15 chunks of 16 = one episode per env per rollout epoch (32 envs -> 60 samples per actor rank, divisible by 96/8)
+max_episode_steps: 240             # 16 s at 15 Hz
 enable_offload: false
 video_cfg:
   save_video: false
