@@ -84,3 +84,23 @@ Reading: the sim scene is not yet close enough to the W40 teleop scenes for the 
 insertion (a 4 kHz flex package with 2 mm rubber pads whose side-pry presets the gym authors say all
 failed after the pads were added). The RL run below starts from this hovering behaviour.
 
+## 2. RL fine-tune of v0.16.10 on the new physics (v8 / v8b)
+
+v8 = v5 optimisation settings (flow-SDE noise 0.6, lr 2e-5, 2 update epochs, critic warm-up 20) from
+v0.16.10@50000 on gym 9e3220f with the v6 reward + orientation term and `boost` gripper mapping. First
+launch (8 GPUs, 16 epochs) ran before the cond_add fix and was discarded; v8b = same on GPUs 0-3 with 16
+envs (GPUs 4-7 serve the garment task), 100 epochs, ~3.3 min/epoch, log `lgym-ppo-staged-v8b.log`.
+Train-mode success per epoch: 0-19 %, mostly 0-6 %, no trend through epoch 58 (rubber pads make the
+grasp harder than on the old gym).
+
+Balanced eval (8 seeds x 3 objects, boost, eval mode):
+
+| policy | ROB-001 | ROB-003 | RTC-001 | all | lifts |
+|---|---|---|---|---|---|
+| v0.16.10@50000 (base) | 0/8 | 0/8 | 1/8 | 1/24 | 1 |
+| v5@110 (old best, trained on the old gym) | 0/8 | 1/8 | 0/8 | 1/24 | 7 |
+| v8b@50 | 0/8 | 0/8 | 2/8 | 2/24 | 5 |
+
+Videos: `episode_v8b_50_gym9e3_boost_<object>_seed<s>.mp4` (and `base_gym9e3_boost_*`,
+`v5_110_gym9e3_boost_*`). v8b@100 is evaluated the same way when it lands (see the end of this file).
+
