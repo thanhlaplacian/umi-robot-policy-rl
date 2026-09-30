@@ -350,7 +350,8 @@ class LaplacianRLEnv:
             grip = (grip > self.cfg.gripper_thresh).float()
         elif self.cfg.gripper_mode == "boost":
             grip = (grip / self.cfg.gripper_thresh).clamp(0, 1)
-        ctrl[:, self.grip_act] = GRIP_CLOSED_CTRL * grip
+        gmax = getattr(self.cfg, "gripper_max", 1.0)
+        ctrl[:, self.grip_act] = GRIP_CLOSED_CTRL * grip.clamp(max=gmax)
         self.p.step(ctrl, self.frame_steps)
         t3 = time.time()
         self.elapsed += 1

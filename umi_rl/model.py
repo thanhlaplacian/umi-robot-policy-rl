@@ -13,7 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import torch
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import DictConfig
+from rlinf.utils.logging import get_logger, OmegaConf
 
 from umi_rl import compat, converters, embodiment
 
@@ -132,6 +133,16 @@ def _model_class():
             with torch.inference_mode():
                 model_pred = self.get_action(normalized_input)
             return model_pred["action_pred"].float()
+
+        def unapply_transforms(self, action_dict, state=None, **kw):
+            """Decode with non-finite normalized actions replaced by 0 (a NaN physics world feeds a NaN
+            observation to the policy; the fork's rot6d decode would otherwise raise in SVD and kill the rollout)."""
+            a = action_dict.get("action")
+            if torch.is_tensor(a) and not torch.isfinite(a).all():
+                bad = (~torch.isfinite(a)).flatten(1).any(1).sum().item()
+                get_logger().warning(f"non-finite normalized actions in {bad} sample(s); replaced by 0 before decode")
+                action_dict = {**action_dict, "action": torch.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0).clamp(-3.0, 3.0)}
+            return super().unapply_transforms(action_dict, state=state, **kw)
 
         def forward(self, forward_type=None, **kwargs):
             from rlinf.models.embodiment.base_policy import ForwardType

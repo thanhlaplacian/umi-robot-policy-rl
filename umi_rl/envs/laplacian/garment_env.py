@@ -75,6 +75,8 @@ class GarmentRLConfig:
     ik_damping: float = 0.05
     gripper_mode: str = "linear"                   # linear | binary | boost
     gripper_thresh: float = 0.3
+    gripper_max: float = 0.92                      # cap on the closed fraction (gym picks command -0.95 rad = 0.92; full 4 Nm closure blows the flex up)
+    grip_force_limit: float | None = 2.0           # actuator forcerange (Nm) baked into the scene; None = canonical 4 Nm
     prompt: str | None = None                      # None = PROMPTS[arm]
     ibl: bool = True                               # image-based lighting from the splat (gym default)
     cull_radius: float = 1.5                       # >0: the garment only collides with the grasping hand and scan geoms within this radius (m) of its spawn
@@ -210,7 +212,8 @@ class GarmentRLEnv(LaplacianRLEnv):
         yaw = (90.0 if rack_b else -90.0) + cfg.yaw_offset_deg + (180.0 if cfg.arm == "right" else 0.0)
         scene_cfg, self.meta = build_jeans_scene(
             str(root / cfg.scene), sku=cfg.sku, shelf=cfg.shelf, along=cfg.along, overhang=cfg.overhang,
-            yaw_degrees=yaw, stack_count=cfg.stack_count, arm=cfg.arm, physics_hz=cfg.physics_hz)
+            yaw_degrees=yaw, stack_count=cfg.stack_count, arm=cfg.arm, physics_hz=cfg.physics_hz,
+            grip_force_limit=cfg.grip_force_limit)
         if cfg.cull_radius > 0:
             from dataclasses import replace
             scene_cfg = replace(scene_cfg, mjcf=_cull_flex_collisions(Path(scene_cfg.mjcf), self.meta["position"], cfg.arm, cfg.cull_radius, cfg.solver_iterations, cfg.ls_iterations))
