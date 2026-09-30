@@ -76,9 +76,10 @@ Both policies drive the left arm to the package's aisle-side edge in a side-pick
 3-10 cm short of it with the gripper open for the rest of the episode; no pad ever touches the garment.
 v0.17.9 seed 5 crashed in the pose-to-rotvec conversion on a NaN physics state (fixed: NaN counts as a
 failed episode). Videos: `episode_v0179_garment_left_garment_seed<s>.mp4`,
-`episode_v01610_garment_left_garment_seed<s>.mp4`. Two placement variants (front overhang 8 cm,
-quarter turn) were queued for v0.17.9 seed 0 to see whether the approach completes with a different
-package pose.
+`episode_v01610_garment_left_garment_seed<s>.mp4`. Placement variants for v0.17.9 seed 0: quarter-turn package (`yaw_offset_deg: 90`) -> same
+hover, closest 4.0 cm, no contact (`episode_v0179_garment_left_yaw90_garment_seed0.mp4`); front
+overhang 8 cm is rejected by the in-shelf jitter check (the gym's own jitter assumes the package inside
+the board), not run.
 
 Reading: the sim scene is not yet close enough to the W40 teleop scenes for the policy to commit to the
 insertion (a 4 kHz flex package with 2 mm rubber pads whose side-pry presets the gym authors say all
