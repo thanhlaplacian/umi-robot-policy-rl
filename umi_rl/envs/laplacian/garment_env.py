@@ -101,7 +101,8 @@ def _cull_flex_collisions(xml_path: Path, garment_pos, arm: str, radius: float, 
 
     The composed livinglab_hq_v2 scene has ~23k scan collision boxes and 56 robot meshes; mujoco-warp
     tests the flex against all of them every 0.25 ms substep (measured 30 ms/substep). Collision bit 2 is
-    given to the flex, to the geoms of ``lpr1/openarm_<arm>_hand*`` bodies and to scan geoms within
+    given to the flex, to the geoms of the ``lpr1/openarm_<arm>_hand_pad_*`` bodies (8-vertex box meshes; the
+    thousand-face finger meshes made mujoco-warp's flex contact go NaN on touch) and to scan geoms within
     ``radius`` of the garment spawn; everything else keeps bit 1 only, so robot/scene collisions are
     unchanged. Written next to the gym's cached scene, content-addressed by the inputs.
     """
@@ -143,7 +144,7 @@ def _cull_flex_collisions(xml_path: Path, garment_pos, arm: str, radius: float, 
                         n_far += 1
             elif child.tag == "body":
                 name = child.get("name", "")
-                walk(child, origin + np.fromstring(child.get("pos", "0 0 0"), sep=" "), hand or f"openarm_{arm}_hand" in name)
+                walk(child, origin + np.fromstring(child.get("pos", "0 0 0"), sep=" "), hand or f"openarm_{arm}_hand_pad" in name)
 
     walk(root.find("worldbody"), np.zeros(3), False)
     opt = root.find("option")
@@ -343,7 +344,7 @@ class GarmentRLEnv(LaplacianRLEnv):
             qpos_row[self.vert_qadr[n]] += local
 
     @torch.no_grad()
-    def reset(self, mask: torch.Tensor | None = None, seeds: list[int] | None = None) -> dict:
+    def reset(self, mask: torch.Tensor | None = None, seeds: list[int] | None = None, settle: bool = True) -> dict:
         N = self.num_envs
         if mask is None:
             mask = torch.ones(N, device=self.device, dtype=torch.bool)
@@ -364,7 +365,7 @@ class GarmentRLEnv(LaplacianRLEnv):
         # settle in control-frame chunks: WarpPhysics captures one CUDA graph per distinct substep
         # count, and a 4000-substep graph takes many minutes to capture; the 267-step graph is the
         # one every control step reuses anyway.
-        n = int(round(self.cfg.settle_s * self.cfg.physics_hz / self.frame_steps))
+        n = int(round(self.cfg.settle_s * self.cfg.physics_hz / self.frame_steps)) if settle else 0
         ctrl = self.p.ctrl.clone()
         for _ in range(n):
             self.p.step(ctrl, self.frame_steps)
@@ -389,11 +390,17 @@ class GarmentRLEnv(LaplacianRLEnv):
                     v = a[:, sl]
                     n = torch.linalg.vector_norm(v, dim=-1, keepdim=True)
                     a[:, sl] = torch.where(n > lim, v * (lim / n.clamp(min=1e-9)), v)
-        out = super().step(a)
+        obs, reward, terminated, truncated, info = super().step(a)
         bad = ~torch.isfinite(self.p.qpos).all(-1)
         if bad.any():
-            print(f"[garment_env] non-finite physics in {int(bad.sum())}/{self.num_envs} envs at step {int(self.elapsed.max())}; terminated for reset", flush=True)
-        return out
+            # mujoco-warp lets a NaN world poison the rest of the batch within a step: reset the bad
+            # worlds now (no settle), report them as failed, and refresh the observation
+            print(f"[garment_env] non-finite physics in {int(bad.sum())}/{self.num_envs} envs at step {int(self.elapsed.max())}; reset in place", flush=True)
+            obs = self.reset(mask=bad, settle=False)
+            reward = torch.where(bad, torch.full_like(reward, -self.cfg.reward.fall_penalty), reward)
+            terminated = terminated | bad
+            info["fail"] = info["fail"] | bad
+        return obs, reward, terminated, truncated, info
 
     @torch.no_grad()
     def garment_points(self, name: str = TARGET) -> torch.Tensor:
