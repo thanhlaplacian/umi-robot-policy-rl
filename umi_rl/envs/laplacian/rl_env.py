@@ -29,6 +29,12 @@ from .rotations import mat_to_rotvec, rotvec_to_mat
 
 CAMERAS = {"cam_wrist_left": "lpr1/openarm_left_wrist_camera", "cam_wrist_right": "lpr1/openarm_right_wrist_camera", "cam_head": "lpr1/cam_head"}
 GRIP_CLOSED_CTRL = -1.0372  # gym's closed gripper command; 0 = open
+# Basket acceptance box of the gym's data generator (world frame, pick_place.py): the object centre must
+# be inside this XY footprint and between the shelf top and a little above the rim.
+BASKET_X = (1.91, 2.31)          # m, inner footprint along x
+BASKET_Y = (0.92, 1.18)          # m, inner footprint along y
+BASKET_Z_BELOW_SHELF = 0.02      # m, tolerance below the shelf top (basket floor sits on the shelf)
+BASKET_Z_ABOVE_RIM = 0.08        # m, tolerance above the rim (the generator's end-of-trajectory check)
 ARM_JOINTS = [f"lpr1/openarm_{side}_joint{j}" for side in ("right", "left") for j in range(1, 8)]
 
 
@@ -59,6 +65,13 @@ class RewardConfig:
     fail_on_fall: bool = True       # terminate with fall_penalty when an object drops below the shelf top
     fall_penalty: float = 2.0
     fall_margin: float = 0.06       # metres below the reset height that count as fallen
+    # strict success (termination): every object inside the basket VOLUME (footprint shrunk by
+    # success_xy_margin, centre below the rim), released by both grippers, for success_hold_steps
+    # consecutive steps. The loose generator box above still drives the staged shaping.
+    success_xy_margin: float = 0.03
+    success_below_rim: float = 0.0  # metres the centre must be below the rim (0 = at or below the rim)
+    success_needs_release: bool = True
+    success_hold_steps: int = 5     # 1/3 s at 15 Hz
     # orientation term (item 6): s = |closing axis . pinchable object axis| in [0, 1], see ``orient_score``
     orient_bonus: float = 0.0       # + w * s * phi(d_tcp) while approaching the active object (before any grasp)
     orient_gate_align: bool = False # align/close bonuses also require s >= orient_thresh
@@ -291,10 +304,12 @@ class LaplacianRLEnv:
             self._obj_init_pos = torch.zeros(N, n_obj, 3, device=self.device)
             self._was_in = torch.zeros(N, n_obj, dtype=torch.bool, device=self.device)
             self._regress_paid = torch.zeros(N, n_obj, dtype=torch.bool, device=self.device)
+            self._place_hold = torch.zeros(N, dtype=torch.long, device=self.device)
         pos = self.object_positions()
         self._obj_init_pos[mask] = pos[mask]
         self._was_in[mask] = False
         self._regress_paid[mask] = False
+        self._place_hold[mask] = 0
         for rig in self.rigs.values():
             if rig["frame"] is not None:
                 rig["frame"].valid[mask] = False
@@ -410,9 +425,11 @@ class LaplacianRLEnv:
         R = self.cfg.reward
         N, n = self.num_envs, len(self.slots)
         o = self.object_positions()  # [N, n, 3]
-        inside = self.in_basket(o)  # [N, n]
-        success = inside.all(-1)
-        terms = {"n_in": inside.sum(-1).float()}
+        inside = self.in_basket(o)  # [N, n] loose box: shaping only
+        placed_all = self.placed(o).all(-1)
+        self._place_hold = torch.where(placed_all, self._place_hold + 1, torch.zeros_like(self._place_hold))
+        success = self._place_hold >= R.success_hold_steps
+        terms = {"n_in": inside.sum(-1).float(), "n_placed": self.placed(o).sum(-1).float()}
         if not R.staged:
             reward = R.success * success.float()
             if R.reach_weight > 0:
@@ -494,9 +511,23 @@ class LaplacianRLEnv:
         return (dropped & ~self.in_basket(o)).any(-1) | blown
 
     @torch.no_grad()
-    def in_basket(self, o: torch.Tensor) -> torch.Tensor:
-        return (o[..., 0] > 1.91) & (o[..., 0] < 2.31) & (o[..., 1] > 0.92) & (o[..., 1] < 1.18) \
-            & (o[..., 2] > self._shelf_top - 0.02) & (o[..., 2] < self._basket_rim + 0.08)
+    def in_basket(self, o: torch.Tensor, xy_margin: float = 0.0, z_top: float | None = None) -> torch.Tensor:
+        """[N, n] bool: object centres inside the basket box. Default = the generator's loose box (fires while
+        the object is still carried over the rim); ``xy_margin`` shrinks the footprint and ``z_top`` caps the
+        height (e.g. the rim) for the strict placement test."""
+        z_top = self._basket_rim + BASKET_Z_ABOVE_RIM if z_top is None else z_top
+        return (o[..., 0] > BASKET_X[0] + xy_margin) & (o[..., 0] < BASKET_X[1] - xy_margin) \
+            & (o[..., 1] > BASKET_Y[0] + xy_margin) & (o[..., 1] < BASKET_Y[1] - xy_margin) \
+            & (o[..., 2] > self._shelf_top - BASKET_Z_BELOW_SHELF) & (o[..., 2] < z_top)
+
+    @torch.no_grad()
+    def placed(self, o: torch.Tensor) -> torch.Tensor:
+        """[N, n] bool: strict per-object placement = inside the basket volume and not touched by any finger."""
+        R = self.cfg.reward
+        inside = self.in_basket(o, xy_margin=R.success_xy_margin, z_top=self._basket_rim - R.success_below_rim)
+        if R.success_needs_release:
+            inside = inside & ~self.grasp_contacts().any(1)  # grasp_contacts: [N, 2 arms, n]
+        return inside
 
     @torch.no_grad()
     def object_positions(self) -> torch.Tensor:
@@ -505,8 +536,8 @@ class LaplacianRLEnv:
 
     @torch.no_grad()
     def success(self) -> torch.Tensor:
-        """Every object inside the basket AABB used by the data generator (world frame)."""
-        return self.in_basket(self.object_positions()).all(-1)
+        """Every object placed (strict box, released) at this instant; ``compute_reward`` adds the hold."""
+        return self.placed(self.object_positions()).all(-1)
 
     @torch.no_grad()
     def min_tcp_object_distance(self) -> torch.Tensor:
