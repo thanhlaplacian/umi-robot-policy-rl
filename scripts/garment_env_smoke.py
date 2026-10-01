@@ -12,7 +12,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--num-envs", type=int, default=2); ap.add_argument("--stack", type=int, default=1)
     ap.add_argument("--arm", default="left"); ap.add_argument("--steps", type=int, default=20)
-    ap.add_argument("--env-cfg", default=None); ap.add_argument("--out", default="/home/thanh/rlinf-runs/logs/umi-rl/garment_smoke")
+    ap.add_argument("--env-cfg", default=None); ap.add_argument("--grip", type=float, default=0.9); ap.add_argument("--close-at", type=int, default=25); ap.add_argument("--out", default="/home/thanh/rlinf-runs/logs/umi-rl/garment_smoke")
     a = ap.parse_args()
     from PIL import Image
     from umi_rl.envs.laplacian.garment_env import GarmentRLConfig, GarmentRLEnv
@@ -44,10 +44,12 @@ def main():
             d_local = torch.einsum("nji,nj->ni", Rb[:, None].expand(-1, 1, -1, -1)[:, 0] @ R[:, k], dw)  # world -> EE-local
             o = 0 if k == 0 else 7
             act[:, o + 1 : o + 4] = d_local
-        act[:, 0] = act[:, 7] = 0.4  # gripper command
+        act[:, 0] = act[:, 7] = a.grip if i >= a.close_at else 0.0  # gripper command
         t = time.time(); obs, r, term, trunc, info = env.step(act); dt = time.time() - t
         pads, lower = env.pad_contacts()
-        print(f"step {i:2d} {dt:.2f}s {env.timing}  r={r.cpu().numpy().round(2).tolist()} d={env.min_tcp_object_distance().cpu().numpy().round(3).tolist()} pads={pads.int().cpu().numpy().tolist()} rise={env.last_reward_terms['rise'].cpu().numpy().round(3).tolist()} term={term.cpu().numpy().tolist()}")
+        finite = torch.isfinite(env.p.qpos).all(-1)
+        nan_pts = (~torch.isfinite(env.garment_points())).flatten(1).any(1)
+        print(f"step {i:2d} {dt:.2f}s phys={env.timing['physics']:.2f}  nan_qpos={int((~finite).sum())}/{a.num_envs} nan_flex={int(nan_pts.sum())}  r={r.cpu().numpy().round(2).tolist()[:4]}.. d={env.min_tcp_object_distance().cpu().numpy().round(3).tolist()[:4]}.. pads={pads.int().sum(-1).cpu().numpy().tolist()} rise={env.last_reward_terms['rise'].cpu().numpy().round(3).tolist()[:4]}.. term={int(term.sum())}")
     for name, im in [(k2, v) for k2, v in obs.items() if k2.startswith("cam")]:
         Image.fromarray(im[0].cpu().numpy()).save(os.path.join(a.out, f"{name}_end.png"))
     print("frames in", a.out)

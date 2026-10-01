@@ -75,6 +75,8 @@ class GarmentRLConfig:
     ik_damping: float = 0.05
     gripper_mode: str = "linear"                   # linear | binary | boost
     gripper_thresh: float = 0.3
+    max_step_pos: float = 0.02                     # clamp on |EE position delta| per 15 Hz step (m); 0 = off. Large noisy deltas slam the arm into the shelf and blow the 0.25 ms Euler flex physics up
+    max_step_rot: float = 0.1                      # clamp on |EE rotation delta| per step (rad); 0 = off
     gripper_max: float = 0.92                      # cap on the closed fraction (gym picks command -0.95 rad = 0.92; full 4 Nm closure blows the flex up)
     grip_force_limit: float | None = 2.0           # actuator forcerange (Nm) baked into the scene; None = canonical 4 Nm
     prompt: str | None = None                      # None = PROMPTS[arm]
@@ -377,6 +379,22 @@ class GarmentRLEnv(LaplacianRLEnv):
         return self.observe()
 
     # ------------------------------------------------------------------ garment state / reward
+    @torch.no_grad()
+    def step(self, action):
+        a = torch.as_tensor(action, device=self.device, dtype=torch.float32).reshape(self.num_envs, 14).clone()
+        a = torch.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0)
+        for o in (1, 8):
+            for lim, sl in ((self.cfg.max_step_pos, slice(o, o + 3)), (self.cfg.max_step_rot, slice(o + 3, o + 6))):
+                if lim > 0:
+                    v = a[:, sl]
+                    n = torch.linalg.vector_norm(v, dim=-1, keepdim=True)
+                    a[:, sl] = torch.where(n > lim, v * (lim / n.clamp(min=1e-9)), v)
+        out = super().step(a)
+        bad = ~torch.isfinite(self.p.qpos).all(-1)
+        if bad.any():
+            print(f"[garment_env] non-finite physics in {int(bad.sum())}/{self.num_envs} envs at step {int(self.elapsed.max())}; terminated for reset", flush=True)
+        return out
+
     @torch.no_grad()
     def garment_points(self, name: str = TARGET) -> torch.Tensor:
         return self.p.flex_position[:, self.slices[name]]  # [N, 105, 3]
