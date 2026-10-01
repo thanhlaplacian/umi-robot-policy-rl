@@ -180,9 +180,20 @@ critic explained variance -11.6 -> 0.36, stage_max 2.36 -> 2.55, grasp 0.
 | PPO step 3 | 0/8 | 3.4-5.1 cm | **8/8** | 0/8 | 262-327 |
 | PPO step 6 | 0/8 | 3.1-5.4 cm (one seed 18 cm) | 7/8 | 0/8 | 271-327 (one seed 53) |
 | PPO step 9 | 0/8 | 3.3-5.2 cm | 8/8 | 0/8 | 270-367 |
+| PPO step 12 (final) | 0/8 | 2.5-5.4 cm | 8/8 | 0/8 | 284-361 |
 
 After three epochs the policy consistently brings a pad onto the garment (the first shaped stage) but
 does not close or lift; step 6 is the same, with one seed degenerating (hand held away, gripper closed
-in the air). Videos: `episode_garment_ppo_step3_garment_seed<s>.mp4`. Steps 6, 9, 12 are
-exported and evaluated the same way as they land (`garment_ckpt_pipeline.sh`).
+in the air). Videos: `episode_garment_ppo_step3_garment_seed<s>.mp4`. Run finished 2026-10-01 10:56 UTC
+(12 epochs, 4.5 h, no NaN after the CG switch). Exported checkpoints:
+`/home/thanh/models/umi-rl-ppo-garment-v1-step{3,6,9,12}`; videos
+`episode_garment_ppo_step<k>_garment_seed<s>.mp4`.
+
+**Conclusion for the garment task.** Twelve PPO epochs from v0.17.9 moved the policy from "hover
+3-5 cm off the package" to "touch it with one pad every time" and raised the episode return from
+~175 to ~340, but never produced the closing/insertion needed for a two-pad grasp; the training-time
+two-pad rate stayed below 0.1 %. With ~25 min per epoch the flow-SDE exploration will not find the
+insertion by chance in any reasonable budget. The pipeline (env, solver, guards, exporter, eval) now
+works end to end; the missing ingredient is a demonstration signal (the gym's `generate_jeans_pick.py`
+side-pry demos -> SFT/AWR warm start) before more PPO.
 
