@@ -178,8 +178,10 @@ critic explained variance -11.6 -> 0.36, stage_max 2.36 -> 2.55, grasp 0.
 |---|---|---|---|---|---|
 | v0.17.9@30000 zero-shot | 0/7 | 3.2-5.5 cm | 0/7 | 0/7 | 165-189 |
 | PPO step 3 | 0/8 | 3.4-5.1 cm | **8/8** | 0/8 | 262-327 |
+| PPO step 6 | 0/8 | 3.1-5.4 cm (one seed 18 cm) | 7/8 | 0/8 | 271-327 (one seed 53) |
 
 After three epochs the policy consistently brings a pad onto the garment (the first shaped stage) but
-does not close or lift. Videos: `episode_garment_ppo_step3_garment_seed<s>.mp4`. Steps 6, 9, 12 are
+does not close or lift; step 6 is the same, with one seed degenerating (hand held away, gripper closed
+in the air). Videos: `episode_garment_ppo_step3_garment_seed<s>.mp4`. Steps 6, 9, 12 are
 exported and evaluated the same way as they land (`garment_ckpt_pipeline.sh`).
 
