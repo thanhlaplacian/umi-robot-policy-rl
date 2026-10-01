@@ -400,7 +400,18 @@ class GarmentRLEnv(LaplacianRLEnv):
             reward = torch.where(bad, torch.full_like(reward, -self.cfg.reward.fall_penalty), reward)
             terminated = terminated | bad
             info["fail"] = info["fail"] | bad
+        # nothing non-finite may leave the env: a single NaN reward/term/state turns the PPO update into NaN weights
+        reward = torch.nan_to_num(reward, nan=-self.cfg.reward.fall_penalty, posinf=0.0, neginf=0.0)
+        self.last_reward_terms = {k: torch.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0) for k, v in self.last_reward_terms.items()}
+        info["reward_terms"] = self.last_reward_terms
+        obs["states"] = torch.nan_to_num(obs["states"], nan=0.0, posinf=0.0, neginf=0.0)
         return obs, reward, terminated, truncated, info
+
+    @torch.no_grad()
+    def observe(self) -> dict:
+        obs = super().observe()
+        obs["states"] = torch.nan_to_num(obs["states"], nan=0.0, posinf=0.0, neginf=0.0)
+        return obs
 
     @torch.no_grad()
     def garment_points(self, name: str = TARGET) -> torch.Tensor:

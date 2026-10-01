@@ -145,11 +145,28 @@ def _model_class():
                 action_dict = {**action_dict, "action": torch.nan_to_num(a, nan=0.0, posinf=0.0, neginf=0.0).clamp(-3.0, 3.0)}
             return super().unapply_transforms(action_dict, state=state, **kw)
 
+        def predict_action_batch(self, *args, **kwargs):
+            """Rollout output with non-finite log-probs / values / chains zeroed (a NaN world's observation
+            otherwise yields NaN prev_logprobs, which turn the PPO ratio and the whole update into NaN)."""
+            actions, result = super().predict_action_batch(*args, **kwargs)
+            for k in ("prev_logprobs", "prev_values", "chains"):
+                v = result.get(k)
+                if torch.is_tensor(v) and not torch.isfinite(v).all():
+                    get_logger().warning(f"non-finite {k} in {int((~torch.isfinite(v)).flatten(1).any(1).sum())} rollout sample(s); zeroed")
+                    result[k] = torch.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
+            return actions, result
+
         def forward(self, forward_type=None, **kwargs):
             from rlinf.models.embodiment.base_policy import ForwardType
 
             if forward_type is None or forward_type == ForwardType.DEFAULT:
-                return super().forward(**kwargs)
+                out = super().forward(**kwargs)
+                for k in ("logprobs", "values", "entropy", "prev_logprobs"):
+                    v = out.get(k) if isinstance(out, dict) else None
+                    if torch.is_tensor(v) and not torch.isfinite(v).all():
+                        get_logger().warning(f"non-finite {k} in the actor forward; zeroed")
+                        out[k] = torch.nan_to_num(v, nan=0.0, posinf=0.0, neginf=0.0)
+                return out
             if forward_type == ForwardType.SFT:
                 loss = self.sft_forward(kwargs["data"])
                 return {"loss": loss, **{k: v for k, v in self.last_sft_stats.items() if k in _SFT_LOGGED_STATS}}
