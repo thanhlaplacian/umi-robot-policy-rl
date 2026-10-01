@@ -101,7 +101,24 @@ Balanced eval (8 seeds x 3 objects, boost, eval mode):
 | v0.16.10@50000 (base) | 0/8 | 0/8 | 1/8 | 1/24 | 1 |
 | v5@110 (old best, trained on the old gym) | 0/8 | 1/8 | 0/8 | 1/24 | 7 |
 | v8b@50 | 0/8 | 0/8 | 2/8 | 2/24 | 5 |
+| **v8b@100** | 0/8 | **3/8** | 2/8 | **5/24** | 4 |
 
-Videos: `episode_v8b_50_gym9e3_boost_<object>_seed<s>.mp4` (and `base_gym9e3_boost_*`,
-`v5_110_gym9e3_boost_*`). v8b@100 is evaluated the same way when it lands (see the end of this file).
+Train-mode success averaged per 20 epochs: 2.6 %, 6.6 %, 5.5 %, 5.7 %, 3.9 %. The eval gain at step 100
+(5/24 vs 1/24 for the base) is small but it is the first RL checkpoint that succeeds on a box (ROB-003,
+the flat one) on the new physics. Success videos: `episode_v8b_100_gym9e3_boost_ROB-003_seed{4,6,7}.mp4`,
+`episode_v8b_100_gym9e3_boost_RTC-001_seed{0,5}.mp4`; the base's only success is
+`episode_base_gym9e3_boost_RTC-001_seed1.mp4`. Exported: `/home/thanh/models/umi-rl-ppo-v8b-step100`.
+
+## 5. RL fine-tune of v0.17.9 on the garment env
+
+Config `configs/rl/laplacian_ppo_gr00t_umi_garment_v1.yaml` (+ `configs/env/laplacian_garment_left_v1.yaml`):
+v5 optimisation settings with flow-SDE noise 0.4, 8 GPUs x 16 envs, 128-step episodes, 12 epochs,
+checkpoint every 3. Getting the batched flex scene through RLinf took five launches overnight, each a
+real fix now in the repo: the gym's mujoco-warp CCD buffer (`naccdmax`) overflowed as soon as the hand
+meshes touched the garment (contacts dropped, NaN state, SVD crash in the fork's rot6d decode); the
+canonical 4 Nm gripper blows the flex up (now 2 Nm force limit + closure cap 0.92, the gym's own pick
+settings); NaN observations must not reach the processor (NaN-safe decode + NaN counts as a failed
+episode); and the RL config overrode the env's episode length (240 not divisible by the PPO batch).
+The session that drove the runs was restarted at ~19:00 UTC, so the first clean launch is 2026-10-01
+02:50 UTC; results are appended below as epochs land (~25 min each).
 
