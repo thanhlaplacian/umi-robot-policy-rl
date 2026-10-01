@@ -168,3 +168,18 @@ Along the way the garment env also gained: rubber-pad-only flex collision (the t
 meshes made the flex CCD overflow), per-world CCD buffers, 2 Nm grip force / 0.92 closure cap (the
 gym's own pick settings), per-step EE delta clamps (2 cm / 0.1 rad), and in-place reset of NaN worlds.
 
+### Garment PPO v1 results (CG solver run, started 2026-10-01 06:21 UTC)
+
+128 envs (8 x 16), 128-step episodes, ~25 min per epoch, checkpoints every 3. Training is finite
+throughout (one NaN world in the first 384 episodes, reset in place). Per epoch: KL 0.088 -> 0.035,
+critic explained variance -11.6 -> 0.36, stage_max 2.36 -> 2.55, grasp 0.
+
+| checkpoint | success (8 seeds, 150 steps) | closest TCP-garment | one pad touching | both pads | return |
+|---|---|---|---|---|---|
+| v0.17.9@30000 zero-shot | 0/7 | 3.2-5.5 cm | 0/7 | 0/7 | 165-189 |
+| PPO step 3 | 0/8 | 3.4-5.1 cm | **8/8** | 0/8 | 262-327 |
+
+After three epochs the policy consistently brings a pad onto the garment (the first shaped stage) but
+does not close or lift. Videos: `episode_garment_ppo_step3_garment_seed<s>.mp4`. Steps 6, 9, 12 are
+exported and evaluated the same way as they land (`garment_ckpt_pipeline.sh`).
+
