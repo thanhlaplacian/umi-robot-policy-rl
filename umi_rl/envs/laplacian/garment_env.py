@@ -82,8 +82,14 @@ class GarmentRLConfig:
     prompt: str | None = None                      # None = PROMPTS[arm]
     ibl: bool = True                               # image-based lighting from the splat (gym default)
     cull_radius: float = 1.5                       # >0: the garment only collides with the grasping hand and scan geoms within this radius (m) of its spawn
-    solver_iterations: int | None = None           # override <option iterations> (scene default 30) for throughput experiments
+    # mujoco-warp's Newton solver fails to converge on this robot+flex scene and the failure mode is NaN
+    # (batch-dependent: the same world states are finite or NaN depending on which worlds share the batch).
+    # Replaying a captured pre-NaN batch: Newton 30/200 iterations -> NaN, CG 100/300 -> finite. CG is the default.
+    solver: str | None = "CG"                      # override <option solver> (None = scene default Newton)
+    solver_iterations: int | None = 100            # override <option iterations> (scene default 30)
     ls_iterations: int | None = None               # override <option ls_iterations> (scene default 50)
+    integrator: str | None = None                  # override <option integrator> (gym forces Euler; implicitfast is refused with flex)
+    jacobian: str | None = None                    # override <option jacobian> (gym forces sparse; dense is refused for nv > 60)
     seed: int = 0
     reward: GarmentRewardConfig = field(default_factory=GarmentRewardConfig)
 
@@ -96,7 +102,7 @@ class GarmentRLConfig:
             self.prompt = PROMPTS[self.arm]
 
 
-def _cull_flex_collisions(xml_path: Path, garment_pos, arm: str, radius: float, iterations=None, ls_iterations=None) -> Path:
+def _cull_flex_collisions(xml_path: Path, garment_pos, arm: str, radius: float, iterations=None, ls_iterations=None, integrator=None, jacobian=None, solver=None) -> Path:
     """Derive a scene where the flex garment collides only with the grasping hand and nearby scan geoms.
 
     The composed livinglab_hq_v2 scene has ~23k scan collision boxes and 56 robot meshes; mujoco-warp
@@ -110,8 +116,8 @@ def _cull_flex_collisions(xml_path: Path, garment_pos, arm: str, radius: float, 
     import xml.etree.ElementTree as ET
 
     tag = f"{radius:g}_{hashlib.sha1(np.asarray(garment_pos, dtype=np.float64).round(3).tobytes()).hexdigest()[:8]}"
-    if iterations is not None or ls_iterations is not None:
-        tag += f"_it{iterations}_ls{ls_iterations}"
+    if any(v is not None for v in (iterations, ls_iterations, integrator, jacobian, solver)):
+        tag += f"_it{iterations}_ls{ls_iterations}_{integrator}_{jacobian}_{solver}"
     out = xml_path.with_name(f"{xml_path.stem}_cull_{arm}_{tag}.xml")
     if out.exists() and out.stat().st_mtime >= xml_path.stat().st_mtime:
         return out
@@ -153,6 +159,9 @@ def _cull_flex_collisions(xml_path: Path, garment_pos, arm: str, radius: float, 
             opt.set("iterations", str(int(iterations)))
         if ls_iterations is not None:
             opt.set("ls_iterations", str(int(ls_iterations)))
+        for key, val in (("integrator", integrator), ("jacobian", jacobian), ("solver", solver)):
+            if val is not None:
+                opt.set(key, str(val))
     tree.write(out, encoding="unicode")
     print(f"[garment_env] culled scene: {n_hand} hand geoms + {n_near} nearby scan geoms collide with the garment; {n_far} scan geoms excluded -> {out.name}")
     return out
@@ -219,7 +228,7 @@ class GarmentRLEnv(LaplacianRLEnv):
             grip_force_limit=cfg.grip_force_limit)
         if cfg.cull_radius > 0:
             from dataclasses import replace
-            scene_cfg = replace(scene_cfg, mjcf=_cull_flex_collisions(Path(scene_cfg.mjcf), self.meta["position"], cfg.arm, cfg.cull_radius, cfg.solver_iterations, cfg.ls_iterations))
+            scene_cfg = replace(scene_cfg, mjcf=_cull_flex_collisions(Path(scene_cfg.mjcf), self.meta["position"], cfg.arm, cfg.cull_radius, cfg.solver_iterations, cfg.ls_iterations, cfg.integrator, cfg.jacobian, cfg.solver))
         if cfg.ibl:
             _patch_ibl_dtype()
         _patch_contact_capacity()
@@ -390,8 +399,17 @@ class GarmentRLEnv(LaplacianRLEnv):
                     v = a[:, sl]
                     n = torch.linalg.vector_norm(v, dim=-1, keepdim=True)
                     a[:, sl] = torch.where(n > lim, v * (lim / n.clamp(min=1e-9)), v)
+        prev = {"qpos": self.p.qpos.clone(), "qvel": self.p.qvel.clone(), "ctrl": self.p.ctrl.clone(), "action": a.clone(), "elapsed": self.elapsed.clone()}
         obs, reward, terminated, truncated, info = super().step(a)
         bad = ~torch.isfinite(self.p.qpos).all(-1)
+        if bad.any() and not getattr(self, "_nan_dumped", False):
+            import os
+            self._nan_dumped = True
+            path = f"/home/thanh/rlinf-runs/logs/nan_dump_{os.getpid()}.pt"
+            torch.save({**{k: v.cpu() for k, v in prev.items()}, "post_qpos": self.p.qpos.cpu(), "post_qvel": self.p.qvel.cpu(), "post_ctrl": self.p.ctrl.cpu(), "bad": bad.cpu(),
+                        "jnt_qposadr": self.model.jnt_qposadr.copy(), "jnt_names": [self.model.joint(j).name for j in range(self.model.njnt)],
+                        "act_names": list(self.env.action_names)}, path)
+            print(f"[garment_env] first NaN: state dumped to {path}", flush=True)
         if bad.any():
             # mujoco-warp lets a NaN world poison the rest of the batch within a step: reset the bad
             # worlds now (no settle), report them as failed, and refresh the observation

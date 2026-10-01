@@ -31,6 +31,8 @@ init_params:
   gripper_mode: linear
   jitter_m: 0.02
   cull_radius: 0.5
+  solver: CG               # Newton goes NaN on this scene in mujoco-warp (see garment_env.py)
+  solver_iterations: 100
   jitter_yaw_deg: 5.0
   reward:
     reach_weight: 2.0

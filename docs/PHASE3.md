@@ -143,3 +143,28 @@ episode); and the RL config overrode the env's episode length (240 not divisible
 The session that drove the runs was restarted at ~19:00 UTC, so the first clean launch is 2026-10-01
 02:50 UTC; results are appended below as epochs land (~25 min each).
 
+### Garment physics NaN: root cause and fix (2026-10-01)
+
+Every batched garment run went NaN within the first episode. The sequence of findings:
+
+1. NaN appeared on whole 16-world batches at once, long before the hand reached the garment, and
+   persisted after reset. A 2-world poison test showed that a NaN world does not leak into its
+   neighbour and that the masked reset does clear it, so neither leakage nor reset was the cause.
+2. The persistence was the trainer: NaN log-probs from a NaN world's observation made the first PPO
+   update's value loss and gradient norm NaN, after which every action was NaN. Guards now zero
+   non-finite rewards/terms/states in the env and non-finite log-probs/values/chains in both the
+   rollout output and the actor forward (commit c0 of this morning).
+3. A state dump at the first NaN showed a benign world (max joint speed 0.4 rad/s, finite controls,
+   0.02 rad command changes) whose entire robot tree was NaN one 267-substep frame later, starting with
+   the mobile base and lift joints. Replaying that frame: the world alone is finite; the full 16-world
+   batch is finite; a particular 8-world subset is NaN in every world; 8 kHz physics is NaN in all 16;
+   100 Newton iterations move the NaN to a different world. The only overflow the run ever reported was
+   "solver iterations limit reached". Conclusion: mujoco-warp's Newton solver fails to converge on
+   this robot+flex scene and fails to NaN, with the outcome depending on contact ordering in the batch.
+4. On the reproducing subset: Newton 30 and 200 iterations -> NaN; CG 100 and CG 300 -> finite for 6
+   frames. `GarmentRLConfig` now defaults to `solver: CG, solver_iterations: 100`.
+
+Along the way the garment env also gained: rubber-pad-only flex collision (the thousand-face finger
+meshes made the flex CCD overflow), per-world CCD buffers, 2 Nm grip force / 0.92 closure cap (the
+gym's own pick settings), per-step EE delta clamps (2 cm / 0.1 rad), and in-place reset of NaN worlds.
+
