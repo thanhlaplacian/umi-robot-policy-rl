@@ -38,6 +38,27 @@ base_gym9e3_boost            |   0/8 (lift 0) |   0/8 (lift 1) |   1/8 (lift 0) 
 v5_110_gym9e3_boost          |   0/8 (lift 1) |   1/8 (lift 3) |   0/8 (lift 3) | 1/24 (lift 7)
 
 
+### Success-rule correction (2026-10-01)
+
+The user noticed in the videos that episodes ended before the object came to rest. The success test was
+the generator's loose acceptance box (centre inside the footprint, height anywhere up to 8 cm above
+the rim), evaluated live, so it fired while the object was still carried over the rim and terminated
+the episode. Fixed in commit 0a847bfe: success now requires every object inside the basket volume
+(footprint shrunk by 3 cm, centre below the rim), no finger contact, for 5 consecutive steps; the loose
+box still drives the shaping stages. The basket box is `BASKET_X/BASKET_Y/BASKET_Z_*` constants.
+Eval-mode episodes are not replayable (the flow's initial noise is unseeded), so the table was re-run
+rather than re-scored:
+
+| policy (strict rule) | ROB-001 | ROB-003 | RTC-001 | all |
+|---|---|---|---|---|
+| v0.16.10@50000 (base) | 1/8 | 0/8 | 2/8 | 3/24 |
+| v8b@100 | 0/8 | 1/8 | 2/8 | 3/24 |
+
+Under the corrected rule the RL fine-tune shows no gain over the base on the new physics (the earlier
+5/24 vs 1/24 was mostly "carried over the rim" events plus sampling noise; 8 seeds per cell is +-2).
+Strict-success videos: `episode_base_strict_*` and `episode_v8b_100_strict_*` with `"success": true`
+in their JSON. All numbers in sections 1-2 above use the old rule.
+
 ## 3. Garment-on-shelf env (`umi_rl/envs/laplacian/garment_env.py`, `task: garment`)
 
 Built on the gym's `build_jeans_scene` (livinglab_hq_v2 + LPR1 + flex garment on rack A shelf 3, gym
