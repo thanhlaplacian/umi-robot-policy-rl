@@ -46,6 +46,7 @@ garment 16 envs 9.7 s/step (render 5 s in 8 chunks, physics 4.5 s). Runs relaunc
 | PPO rigid_b step 10 (noise 0.3, lr 5e-6, 1 update epoch; 3 actor updates past warm-up) | 1/8 | 0/8 | 5/8 | 6/24 |
 | PPO rigid_b step 20 | 1/8 | 1/8 | 4/8 | 6/24 |
 | PPO rigid_b step 30 | 3/8 | 1/8 | 3/8 | 7/24 |
+| PPO rigid_b step 40 | 2/8 | 1/8 | 3/8 | 6/24 |
 
 48-episode comparison (seeds 0-7 plus a second draw on seeds 8-15):
 
