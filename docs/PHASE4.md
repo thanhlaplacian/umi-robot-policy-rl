@@ -34,3 +34,11 @@ model under `/home/thanh/models`, and report the improvement over the baseline. 
 For reference, v0.16.10@50000 and its RL fine-tune v8b@100 scored 3/24 each on this protocol (older
 gym pin). Baseline videos: `episode_v0203_base_rigid_<object>_seed<s>.mp4`.
 
+### Garment pick (strict garment success: both pads on the package and 7 cm lift; 8 seeds, 150 steps)
+
+| checkpoint | success | one pad touching | both pads | closest TCP-garment | return |
+|---|---|---|---|---|---|
+| v0.20.3@8000 baseline | 0/8 | 8/8 | 0/8 | 2.6-3.7 cm | 212-320 |
+
+v0.17.9@30000 (old base) never touched the package (0/7, 3-5 cm away, return 164-189); v0.20.3 reaches
+the package edge with one pad every time but does not close. Videos: `episode_v0203_base_garment_garment_seed<s>.mp4`.
