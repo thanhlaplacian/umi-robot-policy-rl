@@ -46,6 +46,13 @@ garment 16 envs 9.7 s/step (render 5 s in 8 chunks, physics 4.5 s). Runs relaunc
 | PPO rigid_b step 10 (noise 0.3, lr 5e-6, 1 update epoch; 3 actor updates past warm-up) | 1/8 | 0/8 | 5/8 | 6/24 |
 | PPO rigid_b step 20 | 1/8 | 1/8 | 4/8 | 6/24 |
 
+48-episode comparison (seeds 0-7 plus a second draw on seeds 8-15):
+
+| checkpoint | seeds 0-7 | seeds 8-15 | total |
+|---|---|---|---|
+| v0.20.3@8000 baseline | 7/24 | 7/24 | **14/48 (29 %)** |
+| PPO rigid_b step 20 | 6/24 | 4/24 | 10/48 (21 %) |
+
 For reference, v0.16.10@50000 and its RL fine-tune v8b@100 scored 3/24 each on this protocol (older
 gym pin). Baseline videos: `episode_v0203_base_rigid_<object>_seed<s>.mp4`.
 
