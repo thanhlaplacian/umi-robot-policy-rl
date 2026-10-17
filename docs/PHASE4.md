@@ -62,3 +62,7 @@ the package edge with one pad every time but does not close. Videos: `episode_v0
   to `/home/thanh/models/umi-rl-v0203-garment-b-step<N>`. The rigid run's KL is 0.05-0.09 per update
   (clip fraction 0.16-0.25) and its train-mode strict success rose from 0 to 6-24 % by epoch 11, so it
   continues; `rigid_b` (same gentler settings) is prepared in case step 20 also sits below the baseline.
+- 15:54 UTC: rigid-a (noise 0.4, lr 1.5e-5, 2 update epochs) stopped after saving step 20: its train-mode
+  strict success peaked at 24 % around epoch 8-11 and fell back to 0-6 % by epoch 19 while step 10 scored
+  3/24 in eval. `rigid_b` (lr 5e-6, noise 0.3, 1 update epoch) launched from the base on GPUs 0-3;
+  exports go to `/home/thanh/models/umi-rl-v0203-rigid-b-step<N>`. Rigid-a step 20 is still evaluated.
