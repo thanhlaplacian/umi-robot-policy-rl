@@ -197,3 +197,33 @@ insertion by chance in any reasonable budget. The pipeline (env, solver, guards,
 works end to end; the missing ingredient is a demonstration signal (the gym's `generate_jeans_pick.py`
 side-pry demos -> SFT/AWR warm start) before more PPO.
 
+## laplacian-gym bump 9e3220f -> ad3c08c (2026-10-17)
+
+Four upstream commits (Genesis garment generation tooling, LPR1 scene tooling, shared formatting, and
+"LPR1 v2 assets and vertical torso control"). Integration surface: joint/actuator names and counts are
+unchanged (72 joints, 16 actuators), `WarpPhysics.__init__` gained keyword `nconmax`/`njmax`,
+`build_jeans_scene` signature unchanged, `jeans_lattice` gained a `bevel` option, the mujoco-warp patch is
+formatting-only. Both envs build and step without code changes.
+
+Two things to know:
+
+- **The LPR1 v2 wrist is 6.6 cm longer** (hand base 9.05 -> 15.7 cm along joint 7, TCP 20.3 -> 26.9 cm),
+  with new j7 mount adapter/motor/cover meshes. Kinematics differ from every earlier sim run; the dataset
+  TCP convention is whatever the real robot model (umios-robot-models) says, so check which wrist the
+  current teleop data was recorded with before comparing sim and real.
+- **Base checkpoints were rotated** under `/data/models`: v0.16.9, v0.16.10 and v0.17.9 are gone; the
+  current ones are v0.17.18 and v0.18.0-v0.18.26. Configs that point at the removed checkpoints need a
+  new `model_path`. Our exported RL checkpoints under `/home/thanh/models` are intact.
+
+`env.step` wall time, same GPU, 2 envs, 3 cameras, steady state (`gym_env_smoke.py`, `garment_env_smoke.py`):
+
+| env | 9e3220f | ad3c08c | change |
+|---|---|---|---|
+| rigid pick-place | 0.26-0.29 s (physics 2 ms, render 0.25-0.28 s) | 0.27 s (physics 2 ms, render 0.26 s) | unchanged |
+| garment (CG solver) | 4.1-4.4 s (physics 3.2 s, render 1.0 s) | 4.3-4.5 s (physics 3.3 s, render 1.1 s) | unchanged |
+
+No step-time change in either direction. (A first rigid measurement at the new pin read 0.48 s; it
+coincided with the garment scene build and Warp kernel compilation on the same host and did not
+reproduce once the scene was rebuilt on an idle machine.) The new wrist assets add +19 % visual and
+2.7x collision mesh faces, which is not measurable at this resolution; the garment env is physics-bound.
+
