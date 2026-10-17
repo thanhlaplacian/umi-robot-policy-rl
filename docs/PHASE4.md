@@ -48,6 +48,7 @@ garment 16 envs 9.7 s/step (render 5 s in 8 chunks, physics 4.5 s). Runs relaunc
 | PPO rigid_b step 30 | 3/8 | 1/8 | 3/8 | 7/24 |
 | PPO rigid_b step 40 | 2/8 | 1/8 | 3/8 | 6/24 |
 | PPO rigid_b step 50 | 0/8 | 2/8 | 4/8 | 6/24 |
+| PPO rigid_b step 60 | 3/8 | 1/8 | 2/8 | 6/24 |
 | PPO rigid_c step 10 (32 envs, lr 1e-5, noise 0.3) | 1/8 | 1/8 | 3/8 | 5/24 |
 
 Gripper-mapping diagnostic: the same baseline with the plain `linear` mapping instead of `boost` scores
