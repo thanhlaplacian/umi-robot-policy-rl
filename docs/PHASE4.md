@@ -65,6 +65,16 @@ Gripper-mapping diagnostic: the same baseline with the plain `linear` mapping in
 | PPO rigid_b step 20 | 6/24 | 4/24 | 10/48 (21 %) |
 | PPO rigid_c step 20 | 11/24 | 6/24 | **17/48 (35 %)** |
 
+96-episode comparison (draws on seeds 0-7, 8-15, 16-31; 32 episodes per object):
+
+| checkpoint | ROB-001 | ROB-003 | RTC-001 | total |
+|---|---|---|---|---|
+| v0.20.3@8000 baseline | 2/32 | 6/32 | 14/32 | 22/96 (23 %) |
+| PPO rigid_c step 20 | 3/32 | 3/32 | **22/32** | **28/96 (29 %)** |
+
+The gain is on the cylinder (RTC-001, 44 % -> 69 %) with the boxes unchanged within noise; the overall
++6 points is about one standard error for 96 episodes (the per-draw results were 11 vs 7, 6 vs 7, 11 vs 8).
+
 For reference, v0.16.10@50000 and its RL fine-tune v8b@100 scored 3/24 each on this protocol (older
 gym pin). Baseline videos: `episode_v0203_base_rigid_<object>_seed<s>.mp4`.
 
