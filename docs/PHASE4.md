@@ -53,6 +53,7 @@ gym pin). Baseline videos: `episode_v0203_base_rigid_<object>_seed<s>.mp4`.
 | checkpoint | success | one pad touching | both pads | closest TCP-garment | return |
 |---|---|---|---|---|---|
 | v0.20.3@8000 baseline | 0/8 | 8/8 | 0/8 | 2.6-3.7 cm | 212-320 |
+| PPO garment_b step 3 (lr 5e-6, noise 0.3) | 0/8 | 8/8 | 0/8 | 3.1-3.9 cm | 186-311 |
 
 v0.17.9@30000 (old base) never touched the package (0/7, 3-5 cm away, return 164-189); v0.20.3 reaches
 the package edge with one pad every time but does not close. Videos: `episode_v0203_base_garment_garment_seed<s>.mp4`.
