@@ -11,6 +11,7 @@ EMBODIMENT_TAG_BY_CFG = {
     "umi_bimanual": EmbodimentTag.UMI_BIMANUAL,
     "umi_bimanual_v2": EmbodimentTag.UMI_BIMANUAL_V2,
     "umi_bimanual_t2": EmbodimentTag.UMI_BIMANUAL_T2,
+    "umi_bimanual_lpr1": EmbodimentTag.UMI_BIMANUAL_LPR1,  # LPR1-only tag of UMICore v0.20.x (3 cameras, 16-step cumulative EEF)
     "umi_rb5": EmbodimentTag.UMI_RB5,
     "umi_rb5_t2": EmbodimentTag.UMI_RB5_T2,
     "oxe_droid_eef": EmbodimentTag.OXE_DROID_EEF,
