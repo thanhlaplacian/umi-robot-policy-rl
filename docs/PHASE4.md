@@ -48,6 +48,7 @@ garment 16 envs 9.7 s/step (render 5 s in 8 chunks, physics 4.5 s). Runs relaunc
 | PPO rigid_b step 30 | 3/8 | 1/8 | 3/8 | 7/24 |
 | PPO rigid_b step 40 | 2/8 | 1/8 | 3/8 | 6/24 |
 | PPO rigid_b step 50 | 0/8 | 2/8 | 4/8 | 6/24 |
+| PPO rigid_c step 10 (32 envs, lr 1e-5, noise 0.3) | 1/8 | 1/8 | 3/8 | 5/24 |
 
 Gripper-mapping diagnostic: the same baseline with the plain `linear` mapping instead of `boost` scores
 5/24 (ROB-001 0, ROB-003 1, RTC-001 4), so the protocol's `boost` mapping is not handicapping v0.20.3.
@@ -94,3 +95,26 @@ the package edge with one pad every time but does not close. Videos: `episode_v0
   the budget. GPUs 4-7 were reassigned to `rigid_c` (32 envs per update instead of 16, lr 1e-5, noise 0.3,
   1 update epoch) to give the rigid task, where the baseline already succeeds 29 %, a second variant.
   Garment exports: `/home/thanh/models/umi-rl-v0203-garment-b-step{3,6}`.
+## How to evaluate the saved models yourself
+
+Every checkpoint is a fork-loadable HF directory under `/home/thanh/models/umi-rl-v0203-<run>-step<N>`
+(`rigid-b`, `rigid-c`, `rigid`, `garment-b`). Inside the container (`bash scripts/in_container.sh -g <gpu> ...`):
+
+```bash
+# rigid pick-and-place, balanced strict protocol (24 episodes, one process per GPU)
+python scripts/eval_queue.py --ckpt /home/thanh/models/umi-rl-v0203-rigid-b-step30 --tag mytag --gpus 0-7 \
+    --extra "--model-cfg configs/model/gr00t_n1d7_umi_lpr1.yaml"
+python scripts/eval_queue.py --summary v0203_base_rigid,mytag
+# garment, 8 seeds
+python scripts/eval_queue.py --task garment --ckpt /home/thanh/models/umi-rl-v0203-garment-b-step6 --tag mytag_g \
+    --seeds 0-7 --gpus 0-7 --env-cfg '{"cull_radius":0.5}' --extra "--max-steps 150 --model-cfg configs/model/gr00t_n1d7_umi_lpr1.yaml"
+# one episode with video
+python scripts/gym_episode_video.py --seed 0 --tag demo --ckpt <dir> --model-cfg configs/model/gr00t_n1d7_umi_lpr1.yaml \
+    --env-cfg '{"spawn_count":1,"gripper_mode":"boost","gripper_thresh":0.3,"object_types":["ROB-003"]}'
+```
+
+The base is `/data/models/UMICore-v0.20.3/checkpoint-8000` with the same commands.
+
+## Conclusion
+
+(written when the runs end)
