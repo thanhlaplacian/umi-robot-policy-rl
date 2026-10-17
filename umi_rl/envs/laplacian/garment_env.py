@@ -73,6 +73,7 @@ class GarmentRLConfig:
     max_episode_steps: int = 225                   # 15 s
     ik_iters: int = 4
     ik_damping: float = 0.05
+    render_chunk: int = 2             # envs per render call (gym ad3c08c's shader crashes above 2; 0 = all at once)
     gripper_mode: str = "linear"                   # linear | binary | boost
     gripper_thresh: float = 0.3
     max_step_pos: float = 0.02                     # clamp on |EE position delta| per 15 Hz step (m); 0 = off. Large noisy deltas slam the arm into the shelf and blow the 0.25 ms Euler flex physics up

@@ -97,6 +97,7 @@ class LaplacianRLConfig:
     reward: RewardConfig = field(default_factory=RewardConfig)
     # policy gripper g in [0,1] -> servo command. "linear": -1.0372*g (half-closed for g=0.5, too weak to hold);
     # "binary": fully closed when g > gripper_thresh (the data generator's convention); "boost": -1.0372*min(1, g/gripper_thresh).
+    render_chunk: int = 2             # envs per render call (gym ad3c08c's shader crashes above 2; 0 = all at once)
     gripper_mode: str = "linear"
     gripper_thresh: float = 0.3
     extra: dict = field(default_factory=dict)
@@ -198,13 +199,25 @@ class LaplacianRLEnv:
 
     @torch.no_grad()
     def render_all(self) -> dict[str, torch.Tensor]:
-        """uint8 [N, H, W, 3] per camera name (GPU)."""
+        """uint8 [N, H, W, 3] per camera name (GPU).
+
+        Rendered in sub-batches of ``cfg.render_chunk`` envs: laplacian-gym ad3c08c's shading kernel raises a
+        CUDA illegal memory access when more than 2 envs of the LPR1 v2 scene are rasterised in one call
+        (4 rigid envs and 16 garment envs crashed; 2 are fine). The gym renders only the envs in
+        ``render_enabled`` and writes them into the shared frame buffer, so chunking is transparent.
+        """
         env = self.env
-        env.render_enabled[:] = True
         out = {}
+        chunk = max(1, int(getattr(self.cfg, "render_chunk", 2) or self.num_envs))
         for name, rig in self.rigs.items():
             env.camera, env.camera_name, env.last_frame = rig["camera"], rig["cid"], rig["frame"]
-            frame = env.render()
+            frame = None
+            for start in range(0, self.num_envs, chunk):
+                env.render_enabled[:] = False
+                env.render_enabled[start : start + chunk] = True
+                frame = env.render()
+                env.last_frame = frame
+            env.render_enabled[:] = True
             rig["frame"] = frame
             out[name] = (frame.rgb.clamp(0, 1) * 255).round().to(torch.uint8)
         return out
