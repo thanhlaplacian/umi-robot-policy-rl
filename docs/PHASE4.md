@@ -23,6 +23,17 @@ model under `/home/thanh/models`, and report the improvement over the baseline. 
   the protocol above. Logs: `lgym-ppo-v0203-rigid.log`, `lgym-ppo-v0203-garment.log`,
   `v0203_ckpt_pipeline.log`. Videos: `/home/thanh/rlinf-runs/logs/umi-rl/gym_episode/episode_v0203_*`.
 
+## Integration notes for gym ad3c08c
+
+Both PPO runs crashed at their first reset with a CUDA illegal memory access inside the gym's shading
+kernel (`rendering/lighting.py shade`). Reproduced outside RLinf: 2 and 3 envs render, 4 do not (the
+LPR1 v2 wrist adds 19 % visual and 2.7x collision faces). Workaround in `LaplacianRLEnv.render_all`:
+render each camera in sub-batches of `render_chunk` (default 2) envs via the gym's `render_enabled`
+mask; the garment env additionally slices the flex vertex tensor per chunk because the gym's skinning
+reads the full batch on subset renders. Cost: rigid 4 envs 0.51 s/step (was 0.36 s unchunked at 3 envs),
+garment 16 envs 9.7 s/step (render 5 s in 8 chunks, physics 4.5 s). Runs relaunched 14:20 (rigid) and
+14:26 (garment) UTC.
+
 ## Results
 
 ### Rigid pick-and-place (strict placement success, 3 objects x 8 seeds)
