@@ -122,3 +122,6 @@ The base is `/data/models/UMICore-v0.20.3/checkpoint-8000` with the same command
 ## Conclusion
 
 (written when the runs end)
+- 21:29 UTC: rigid_b stopped after exporting step 80 (eight checkpoints at 5-7/24, never above the
+  baseline). GPUs 0-3 now serve evaluation only: a third and fourth draw (seeds 16-31) for the baseline and
+  for rigid_c step 20, giving 96 episodes each. rigid_c keeps training on GPUs 4-7 with checkpoints every 10.
