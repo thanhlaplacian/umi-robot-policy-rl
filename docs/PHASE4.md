@@ -25,5 +25,12 @@ model under `/home/thanh/models`, and report the improvement over the baseline. 
 
 ## Results
 
-(filled in as evaluations complete)
+### Rigid pick-and-place (strict placement success, 3 objects x 8 seeds)
+
+| checkpoint | ROB-001 | ROB-003 | RTC-001 | all |
+|---|---|---|---|---|
+| v0.20.3@8000 baseline | 2/8 | 3/8 | 2/8 | **7/24** |
+
+For reference, v0.16.10@50000 and its RL fine-tune v8b@100 scored 3/24 each on this protocol (older
+gym pin). Baseline videos: `episode_v0203_base_rigid_<object>_seed<s>.mp4`.
 
