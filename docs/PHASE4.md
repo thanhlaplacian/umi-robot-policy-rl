@@ -74,8 +74,16 @@ Gripper-mapping diagnostic: the same baseline with the plain `linear` mapping in
 | v0.20.3@8000 baseline | 2/32 | 6/32 | 14/32 | 22/96 (23 %) |
 | PPO rigid_c step 20 | 3/32 | 3/32 | **22/32** | **28/96 (29 %)** |
 
-The gain is on the cylinder (RTC-001, 44 % -> 69 %) with the boxes unchanged within noise; the overall
-+6 points is about one standard error for 96 episodes (the per-draw results were 11 vs 7, 6 vs 7, 11 vs 8).
+144-episode comparison (a fourth draw on seeds 32-47 added; 48 episodes per object):
+
+| checkpoint | ROB-001 | ROB-003 | RTC-001 | total |
+|---|---|---|---|---|
+| v0.20.3@8000 baseline | 3/48 | 7/48 | 23/48 | 33/144 (23 %) |
+| PPO rigid_c step 20 | 4/48 | 6/48 | 27/48 | 37/144 (26 %) |
+
+Per draw (step 20 vs baseline): 11 vs 7, 6 vs 7, 11 vs 8, 9 vs 11. The first draw's 11/24 was a lucky
+sample; over 144 episodes the lead is +4 episodes (+3 points), well inside one standard error (about
++-5 points at this size). The cylinder gain (27 vs 23) is the only consistent direction; boxes are unchanged.
 
 For reference, v0.16.10@50000 and its RL fine-tune v8b@100 scored 3/24 each on this protocol (older
 gym pin). Baseline videos: `episode_v0203_base_rigid_<object>_seed<s>.mp4`.
@@ -134,7 +142,29 @@ The base is `/data/models/UMICore-v0.20.3/checkpoint-8000` with the same command
 
 ## Conclusion
 
-(written when the runs end)
+**RL did not produce a measurable improvement over v0.20.3 on either task within the 12-hour budget.**
+
+- Rigid pick-and-place: the strict-rule baseline is 23 % (33/144). Three PPO settings were tried from the
+  base: noise 0.4 / lr 1.5e-5 regressed (3-4/24 at steps 10-20); noise 0.3 / lr 5e-6 / 16 envs stayed at
+  5-7/24 for 80 epochs; noise 0.3 / lr 1e-5 / 32 envs (rigid_c) gave the best checkpoint, step 20, at
+  26 % (37/144), a +3-point lead that is within sampling noise. Later rigid_c checkpoints (30: 13/48) did
+  not beat it. Train-mode strict success never trended upward in any run.
+- Garment pick: v0.20.3 already reaches the package edge with one pad in every episode (an advance over
+  v0.17.9, which never touched it), but neither it nor any PPO checkpoint closes the second pad. PPO at
+  lr 2e-5 collapsed the policy (KL 2.9 after one update); at lr 5e-6 it was stable but, with zero
+  two-pad contacts in any training batch, had no success signal to learn from. 0/8 at every checkpoint.
+
+Why, in one paragraph: both tasks sit in a regime where the base policy's successes are rare, precise
+events (a centimetre-level grasp or a sub-rim insertion) and the flow-SDE exploration perturbs exactly
+those. PPO therefore sees few positive advantages, most of its signal is sampling noise (the evaluation
+itself fluctuates +-3 per 24 episodes), and the learning rate that keeps the policy from collapsing is
+too small to move it in 10-80 epochs. The infrastructure is now sound (conditioning fix, strict success
+rules, NaN-safe flex physics, chunked rendering, export + evaluation pipelines), so the next lever is the
+data side rather than more PPO epochs: sim demonstrations for a warm start (the gym's planner pipelines
+for both tasks), or offline RL / AWR on the company's own LPR1 teleop data, before on-policy fine-tuning.
+
+**Saved models** (all fork-loadable, evaluation commands above): best rigid candidate
+`/home/thanh/models/umi-rl-v0203-rigid-c-step20`; all rigid_b/rigid_c/garment_b checkpoints alongside it.
 - 21:29 UTC: rigid_b stopped after exporting step 80 (eight checkpoints at 5-7/24, never above the
   baseline). GPUs 0-3 now serve evaluation only: a third and fourth draw (seeds 16-31) for the baseline and
   for rigid_c step 20, giving 96 episodes each. rigid_c keeps training on GPUs 4-7 with checkpoints every 10.
