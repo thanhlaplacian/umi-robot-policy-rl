@@ -70,3 +70,9 @@ the package edge with one pad every time but does not close. Videos: `episode_v0
   strict success peaked at 24 % around epoch 8-11 and fell back to 0-6 % by epoch 19 while step 10 scored
   3/24 in eval. `rigid_b` (lr 5e-6, noise 0.3, 1 update epoch) launched from the base on GPUs 0-3;
   exports go to `/home/thanh/models/umi-rl-v0203-rigid-b-step<N>`. Rigid-a step 20 is still evaluated.
+- ~18:15 UTC: garment_b stopped after exporting step 6. Across every garment attempt (v0.17.9 x 12 epochs,
+  v0.20.3 garment-a, garment_b) the training batches never contained a single two-pad contact, so the
+  policy has no success signal to climb and 14 more epochs at 30 min each could not change that within
+  the budget. GPUs 4-7 were reassigned to `rigid_c` (32 envs per update instead of 16, lr 1e-5, noise 0.3,
+  1 update epoch) to give the rigid task, where the baseline already succeeds 29 %, a second variant.
+  Garment exports: `/home/thanh/models/umi-rl-v0203-garment-b-step{3,6}`.
