@@ -209,17 +209,26 @@ class LaplacianRLEnv:
         env = self.env
         out = {}
         chunk = max(1, int(getattr(self.cfg, "render_chunk", 2) or self.num_envs))
-        for name, rig in self.rigs.items():
-            env.camera, env.camera_name, env.last_frame = rig["camera"], rig["cid"], rig["frame"]
-            frame = None
-            for start in range(0, self.num_envs, chunk):
-                env.render_enabled[:] = False
-                env.render_enabled[start : start + chunk] = True
-                frame = env.render()
-                env.last_frame = frame
+        # the gym's flex skinning reads the FULL flex vertex tensor even for a subset render; slice it per chunk
+        flex = getattr(getattr(env, "foreground", None), "flex_visuals", None)
+        flex_all = flex.positions if flex is not None and getattr(flex, "bindings", None) else None
+        try:
+            for name, rig in self.rigs.items():
+                env.camera, env.camera_name, env.last_frame = rig["camera"], rig["cid"], rig["frame"]
+                frame = None
+                for start in range(0, self.num_envs, chunk):
+                    env.render_enabled[:] = False
+                    env.render_enabled[start : start + chunk] = True
+                    if flex_all is not None:
+                        flex.positions = flex_all[start : start + chunk]
+                    frame = env.render()
+                    env.last_frame = frame
+                rig["frame"] = frame
+                out[name] = (frame.rgb.clamp(0, 1) * 255).round().to(torch.uint8)
+        finally:
             env.render_enabled[:] = True
-            rig["frame"] = frame
-            out[name] = (frame.rgb.clamp(0, 1) * 255).round().to(torch.uint8)
+            if flex_all is not None:
+                flex.positions = flex_all
         return out
 
     # ------------------------------------------------------------------ state
