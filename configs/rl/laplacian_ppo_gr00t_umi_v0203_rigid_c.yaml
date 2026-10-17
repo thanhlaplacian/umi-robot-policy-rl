@@ -106,7 +106,7 @@ actor:
   group_name: "ActorGroup"
   training_backend: "fsdp"
   micro_batch_size: 4
-  global_batch_size: 120      # 32 envs x 15 chunks = 480 samples, 120 per actor rank, divisible by 120/4 = 30
+  global_batch_size: 96       # 32 envs x 15 chunks = 480 samples, 120 per actor rank, divisible by 96/4 = 24; 96 divisible by micro 4 x 4 ranks
   seed: 1234
   enable_offload: True
   model:
