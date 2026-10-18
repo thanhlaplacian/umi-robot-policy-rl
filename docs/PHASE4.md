@@ -80,6 +80,7 @@ Gripper-mapping diagnostic: the same baseline with the plain `linear` mapping in
 | PPO rigid_c step 70 | 8/24 | 7/24 | 15/48 (31 %) |
 | PPO rigid_c step 80 | 9/24 | 7/24 | 16/48 (33 %) |
 | PPO rigid_c step 90 | 8/24 | 4/24 | 12/48 (25 %) |
+| PPO rigid_c step 120 | 8/24 | 5/24 | 13/48 (27 %) |
 
 96-episode comparison (draws on seeds 0-7, 8-15, 16-31; 32 episodes per object):
 
@@ -170,7 +171,7 @@ The base is `/data/models/UMICore-v0.20.3/checkpoint-8000` with the same command
   and, with the fourth draw, 51/144 (35 %) against the baseline's 33/144 on the same seeds: +18 episodes,
   about 2.4 standard errors, ahead or level in every draw. The gain is on the cylinder (34/48 vs 23/48) and
   the small box (10/48 vs 3/48); ROB-003 is unchanged (7/48 both). Later checkpoints fall back: steps 70
-  and 80 score 29/96 (baseline 22/96), step 90 12/48, step 100 6/24, step 110 5/24 and step 120 (the last) 8/24, so step 60 is the peak of this run.
+  and 80 score 29/96 (baseline 22/96), step 90 12/48, step 100 6/24, step 110 5/24 and step 120 (the last) 13/48, so step 60 is the peak of this run.
 - Garment pick: v0.20.3 already reaches the package edge with one pad in every episode (an advance over
   v0.17.9, which never touched it), but neither it nor any PPO checkpoint closes the second pad. PPO at
   lr 2e-5 collapsed the policy (KL 2.9 after one update); at lr 5e-6 it was stable but, with zero
