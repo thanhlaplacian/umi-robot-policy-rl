@@ -58,6 +58,7 @@ garment 16 envs 9.7 s/step (render 5 s in 8 chunks, physics 4.5 s). Runs relaunc
 | PPO rigid_c step 50 | 2/8 | 3/8 | 4/8 | 9/24 |
 | PPO rigid_c step 60 | 4/8 | 2/8 | 7/8 | **13/24** |
 | PPO rigid_c step 70 | 1/8 | 2/8 | 5/8 | 8/24 |
+| PPO rigid_c step 80 | 1/8 | 4/8 | 4/8 | 9/24 |
 
 Gripper-mapping diagnostic: the same baseline with the plain `linear` mapping instead of `boost` scores
 5/24 (ROB-001 0, ROB-003 1, RTC-001 4), so the protocol's `boost` mapping is not handicapping v0.20.3.
