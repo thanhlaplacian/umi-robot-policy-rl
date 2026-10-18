@@ -84,6 +84,7 @@ Gripper-mapping diagnostic: the same baseline with the plain `linear` mapping in
 | PPO rigid_c step 20 | 3/32 | 3/32 | **22/32** | 28/96 (29 %) |
 | PPO rigid_c step 60 | 6/32 | 5/32 | **23/32** | **34/96 (35 %)** |
 | PPO rigid_c step 70 | 4/32 | 6/32 | 19/32 | 29/96 (30 %) |
+| PPO rigid_c step 80 | 1/32 | 8/32 | 20/32 | 29/96 (30 %) |
 
 144-episode comparison (a fourth draw on seeds 32-47 added; 48 episodes per object):
 
