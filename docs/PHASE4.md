@@ -86,7 +86,9 @@ Gripper-mapping diagnostic: the same baseline with the plain `linear` mapping in
 |---|---|---|---|---|
 | v0.20.3@8000 baseline | 3/48 | 7/48 | 23/48 | 33/144 (23 %) |
 | PPO rigid_c step 20 | 4/48 | 6/48 | 27/48 | 37/144 (26 %) |
+| PPO rigid_c step 60 | 10/48 | 7/48 | **34/48** | **51/144 (35 %)** |
 
+Per draw (step 60 vs baseline): 13 vs 7, 7 vs 7, 14 vs 8, 17 vs 11 - ahead or level in every draw.
 Per draw (step 20 vs baseline): 11 vs 7, 6 vs 7, 11 vs 8, 9 vs 11. The first draw's 11/24 was a lucky
 sample; over 144 episodes the lead is +4 episodes (+3 points), well inside one standard error (about
 +-5 points at this size). The cylinder gain (27 vs 23) is the only consistent direction; boxes are unchanged.
@@ -148,15 +150,15 @@ The base is `/data/models/UMICore-v0.20.3/checkpoint-8000` with the same command
 
 ## Conclusion
 
-**Rigid task: one checkpoint (rigid_c step 60) leads the baseline by 12 points over 96 episodes (35 % vs 23 %), about two standard errors; a 144-episode confirmation is running. Garment task: no improvement.**
+**Rigid task: rigid_c step 60 scores 51/144 (35 %) against the baseline's 33/144 (23 %) on identical seeds, +12 points at about 2.4 standard errors, ahead or level in all four draws. Garment task: no improvement.**
 
 - Rigid pick-and-place: the strict-rule baseline is 23 % (33/144). Three PPO settings were tried from the
   base: noise 0.4 / lr 1.5e-5 regressed (3-4/24 at steps 10-20); noise 0.3 / lr 5e-6 / 16 envs stayed at
   5-7/24 for 80 epochs; noise 0.3 / lr 1e-5 / 32 envs (rigid_c) is the only setting that moved. Its step 20
   scored 26 % (37/144, within noise), steps 30-50 13-14/48 (baseline pace), and step 60 scored 34/96 (35 %)
-  against the baseline's 22/96 on the same seeds: +12 episodes, roughly two standard errors. The gain is on
-  the cylinder (23/32 vs 14/32) and the small box (6/32 vs 2/32); ROB-003 is unchanged. A fourth draw
-  (seeds 32-47) is running to put step 60 on the same 144-episode footing as the baseline.
+  and, with the fourth draw, 51/144 (35 %) against the baseline's 33/144 on the same seeds: +18 episodes,
+  about 2.4 standard errors, ahead or level in every draw. The gain is on the cylinder (34/48 vs 23/48) and
+  the small box (10/48 vs 3/48); ROB-003 is unchanged (7/48 both).
 - Garment pick: v0.20.3 already reaches the package edge with one pad in every episode (an advance over
   v0.17.9, which never touched it), but neither it nor any PPO checkpoint closes the second pad. PPO at
   lr 2e-5 collapsed the policy (KL 2.9 after one update); at lr 5e-6 it was stable but, with zero
