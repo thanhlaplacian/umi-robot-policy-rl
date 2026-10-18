@@ -70,14 +70,15 @@ Gripper-mapping diagnostic: the same baseline with the plain `linear` mapping in
 | PPO rigid_c step 20 | 11/24 | 6/24 | **17/48 (35 %)** |
 | PPO rigid_c step 30 | 8/24 | 5/24 | 13/48 (27 %) |
 | PPO rigid_c step 50 | 9/24 | 5/24 | 14/48 (29 %) |
-| PPO rigid_c step 60 | 13/24 | 7/24 | **20/48 (42 %)** (third draw on seeds 16-31 running) |
+| PPO rigid_c step 60 | 13/24 | 7/24 | **20/48 (42 %)** |
 
 96-episode comparison (draws on seeds 0-7, 8-15, 16-31; 32 episodes per object):
 
 | checkpoint | ROB-001 | ROB-003 | RTC-001 | total |
 |---|---|---|---|---|
 | v0.20.3@8000 baseline | 2/32 | 6/32 | 14/32 | 22/96 (23 %) |
-| PPO rigid_c step 20 | 3/32 | 3/32 | **22/32** | **28/96 (29 %)** |
+| PPO rigid_c step 20 | 3/32 | 3/32 | **22/32** | 28/96 (29 %) |
+| PPO rigid_c step 60 | 6/32 | 5/32 | **23/32** | **34/96 (35 %)** |
 
 144-episode comparison (a fourth draw on seeds 32-47 added; 48 episodes per object):
 
@@ -147,13 +148,15 @@ The base is `/data/models/UMICore-v0.20.3/checkpoint-8000` with the same command
 
 ## Conclusion
 
-**RL did not produce a measurable improvement over v0.20.3 on either task within the 12-hour budget.**
+**Rigid task: one checkpoint (rigid_c step 60) leads the baseline by 12 points over 96 episodes (35 % vs 23 %), about two standard errors; a 144-episode confirmation is running. Garment task: no improvement.**
 
 - Rigid pick-and-place: the strict-rule baseline is 23 % (33/144). Three PPO settings were tried from the
   base: noise 0.4 / lr 1.5e-5 regressed (3-4/24 at steps 10-20); noise 0.3 / lr 5e-6 / 16 envs stayed at
-  5-7/24 for 80 epochs; noise 0.3 / lr 1e-5 / 32 envs (rigid_c) gave the best checkpoint, step 20, at
-  26 % (37/144), a +3-point lead that is within sampling noise. Later rigid_c checkpoints (30: 13/48) did
-  not beat it. Train-mode strict success never trended upward in any run.
+  5-7/24 for 80 epochs; noise 0.3 / lr 1e-5 / 32 envs (rigid_c) is the only setting that moved. Its step 20
+  scored 26 % (37/144, within noise), steps 30-50 13-14/48 (baseline pace), and step 60 scored 34/96 (35 %)
+  against the baseline's 22/96 on the same seeds: +12 episodes, roughly two standard errors. The gain is on
+  the cylinder (23/32 vs 14/32) and the small box (6/32 vs 2/32); ROB-003 is unchanged. A fourth draw
+  (seeds 32-47) is running to put step 60 on the same 144-episode footing as the baseline.
 - Garment pick: v0.20.3 already reaches the package edge with one pad in every episode (an advance over
   v0.17.9, which never touched it), but neither it nor any PPO checkpoint closes the second pad. PPO at
   lr 2e-5 collapsed the policy (KL 2.9 after one update); at lr 5e-6 it was stable but, with zero
@@ -169,7 +172,7 @@ data side rather than more PPO epochs: sim demonstrations for a warm start (the 
 for both tasks), or offline RL / AWR on the company's own LPR1 teleop data, before on-policy fine-tuning.
 
 **Saved models** (all fork-loadable, evaluation commands above): best rigid candidate
-`/home/thanh/models/umi-rl-v0203-rigid-c-step20`; all rigid_b/rigid_c/garment_b checkpoints alongside it.
+`/home/thanh/models/umi-rl-v0203-rigid-c-step60` (runner-up step 20); all rigid_b/rigid_c/garment_b checkpoints alongside it.
 - 21:29 UTC: rigid_b stopped after exporting step 80 (eight checkpoints at 5-7/24, never above the
   baseline). GPUs 0-3 now serve evaluation only: a third and fourth draw (seeds 16-31) for the baseline and
   for rigid_c step 20, giving 96 episodes each. rigid_c keeps training on GPUs 4-7 with checkpoints every 10.
