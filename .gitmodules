@@ -4,3 +4,7 @@
 [submodule "third_party/laplacian-gym"]
 	path = third_party/laplacian-gym
 	url = git@github.com:Laplacian-AI/laplacian-gym.git
+[submodule "third_party/rlinf"]
+	path = third_party/rlinf
+	url = git@github.com:thanhlaplacian/RLinf.git
+	branch = umi-rl

@@ -14,6 +14,7 @@ export DOWNLOAD_DIR="${DOWNLOAD_DIR:-/home/thanh/.rlinf-assets}"
 export GR00T_PATH="$ROOT/third_party/umi-robot-policy"
 
 git -C "$ROOT" submodule update --init third_party/umi-robot-policy
+git -C "$ROOT" submodule update --init third_party/rlinf
 git -C "$ROOT/third_party/umi-robot-policy" submodule update --init deps/umi-data-sdk
 bash "$ROOT/scripts/apply_patches.sh"
 

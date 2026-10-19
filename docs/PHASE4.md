@@ -191,3 +191,18 @@ for both tasks), or offline RL / AWR on the company's own LPR1 teleop data, befo
 - 21:29 UTC: rigid_b stopped after exporting step 80 (eight checkpoints at 5-7/24, never above the
   baseline). GPUs 0-3 now serve evaluation only: a third and fourth draw (seeds 16-31) for the baseline and
   for rigid_c step 20, giving 96 episodes each. rigid_c keeps training on GPUs 4-7 with checkpoints every 10.
+
+## RLinf bumped to upstream a78b6d7 (2026-10-19)
+
+`third_party/rlinf` is now a git submodule of the fork `thanhlaplacian/RLinf`, branch `umi-rl` = upstream
+`a78b6d7` (2026-10-17, 65 commits past the vendored `ee2cab6`) with the 12 local commits rebased on top
+(two conflicts: the env registry and the N1.7 special-case list in the actor worker, where upstream added
+`PI0_FAST`). Checks on the new tree, same venv, no dependency changes needed:
+
+| Check | Result |
+|---|---|
+| imports (config, scheduler, env/rollout/actor/sft workers, runner, N1.7 head, umi_rl.model) | all import; `gr00t_n1d7_umi` registered, `laplacian_gym` resolves, `rl_cond_add` hook installed |
+| Hydra composition of `laplacian_ppo_gr00t_umi_v0203_rigid_c` | ok (fsdp + patch_syncer defaults still found) |
+| PPO, rigid_c config, 2 epochs, GPUs 4-7 (`laplacian_ppo_v0203_rigid_c_rlinf_a78b6d7_test`) | success_once 0.125 / 0.156, identical to the original run's epochs 1-2; approx_kl 0.018 / 0.0098; rollout epoch 282 s vs 630 s before (idle host) |
+| checkpoint at step 2 + `export_hf_checkpoint.py` | 1050 tensors, 6.44 GiB, 2 shards, 8 RLinf-only keys dropped |
+| strict eval of `rigid-c-step60`, first draw (seeds 0-7) | 10/24 (ROB-001 4/8, ROB-003 1/8, RTC-001 5/8) vs 13/24 on the same seeds before the bump: within the +-2-3 eval noise |
