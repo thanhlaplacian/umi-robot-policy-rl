@@ -2,7 +2,9 @@
 """W1 check: the umi_wam train-mode sampler (the PPO rollout path) at noise_level 0 must reproduce the fork's
 get_action (the eval path) on the same initial noise: same observation K/V, same head conditioning (progress /
 arm-active), same Euler steps. The train path keeps the chain in fp32, so the expected gap is bf16 rounding, not 0.
-The PHASE3 lesson: a dropped conditioning row showed up here as a 2e-2 gap.
+The PHASE3 lesson: a dropped conditioning row showed up here as a 2e-2 gap. Both paths encode one frame per VAE call
+here (the RL paths always do, see umi_rl.wam.policy._VaeOneFrame): batched VAE encodes round each frame by its batch
+position, which alone moves single action elements by up to 0.2.
 
 usage: wam_cond_parity.py [--model-cfg CFG] [--seed 0]
 """
@@ -13,6 +15,7 @@ import argparse
 import numpy as np
 import torch
 
+from umi_rl.wam.policy import _VaeOneFrame
 from wam_common import DEFAULT_MODEL_CFG, load_model, sim_batches
 
 
@@ -28,12 +31,12 @@ def main():
     for bi, env_obs in enumerate(sim_batches(model)):
         inputs, states = model._collate(env_obs)
         torch.manual_seed(a.seed)
-        with torch.inference_mode():
+        with torch.inference_mode(), _VaeOneFrame(model.config):
             ev = model.get_action(inputs)["action_pred"].float()[..., : model.n_real]
         torch.manual_seed(a.seed)
         tr, res = model._rl_sample(inputs, "train")
         torch.manual_seed(a.seed + 1)
-        with torch.inference_mode():
+        with torch.inference_mode(), _VaeOneFrame(model.config):
             ev2 = model.get_action(inputs)["action_pred"].float()[..., : model.n_real]
         d_norm = float((ev - tr).abs().max())
         spread = float((ev - ev2).abs().max())

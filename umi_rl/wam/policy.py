@@ -33,7 +33,7 @@ from umi_rl import compat, converters, embodiment
 
 MODEL_TYPE = "umi_wam"
 # RL bookkeeping keys the rollout adds next to the processor's model inputs
-_RL_KEYS = ("chains", "denoise_inds")
+_RL_KEYS = ("chains", "denoise_inds", "rollout_batch_size")
 _SFT_LOGGED_STATS = {"action_loss", "video_loss", "progress_loss", "arm_active_loss", "idm_loss"}
 
 
@@ -56,6 +56,23 @@ def _zero_nonfinite(t: torch.Tensor, what: str) -> torch.Tensor:
 
 
 _MODEL_CLS = None
+
+
+class _VaeOneFrame:
+    """Encode one frame per VAE call inside the RL paths. Batched conv kernels round each frame differently by its
+    position in the batch (2e-2 on the latents, amplified by the tower to a chunk-level log-ratio of ~0.2 when the
+    actor replays shuffled rows); per-frame calls make rollout and replay agree bit for bit. Eval mode keeps the
+    checkpoint's chunking, i.e. stays identical to deployment."""
+
+    def __init__(self, config):
+        self.config = config
+
+    def __enter__(self):
+        self.saved = self.config.wam_vae_chunk
+        self.config.wam_vae_chunk = 1
+
+    def __exit__(self, *exc):
+        self.config.wam_vae_chunk = self.saved
 
 
 def model_class():
@@ -91,6 +108,10 @@ def model_class():
                     f"umi_wam RL needs a single-pass checkpoint (wam_attention block / two_pass_block); "
                     f"this one is {self.config.wam_attention!r}"
                 )
+            # RoPE frequencies stay fp32. FSDP's mixed precision casts buffers to buffer_dtype (bf16), and the WAM's
+            # position ids reach ~1.5e4 (text_temporal_offset), so bf16 frequencies move every rotary angle: the actor's
+            # replay then disagrees with the rollout by ~0.3 in chunk-level log-ratio before any update (W2 smoke).
+            self.__dict__["_rope_inv_freq"] = self.trunk.rotary_emb.inv_freq.detach().float().clone()
             self.num_action_chunks = int(num_action_chunks)
             self.n_real = self.item_dim * self.n_items  # packed real action dims (20)
             mc = processor.get_modality_configs()[embodiment_tag.value]
@@ -159,6 +180,9 @@ def model_class():
         def _context(self, inp: dict, dtype, detach_obs: bool = False):
             """Everything a denoising step needs that depends only on the observation."""
             dev = inp["wam_wrist"].device
+            rope = self.trunk.rotary_emb
+            if rope.inv_freq.dtype != torch.float32:
+                rope.inv_freq = self.__dict__["_rope_inv_freq"].to(rope.inv_freq.device)
             cfg = self.config
             if detach_obs:
                 with torch.no_grad():
@@ -244,7 +268,8 @@ def model_class():
         def _rl_sample(self, inputs: dict, mode: str):
             inp = self.prepare_input(inputs)
             dtype = self.trunk.proj_in.weight.dtype
-            ctx = self._context(inp, dtype)
+            with _VaeOneFrame(self.config):
+                ctx = self._context(inp, dtype)
             ctx["state_flat"] = inp["wam_state"].reshape(ctx["b"], -1)
             b, dev, a_real = ctx["b"], ctx["dev"], ctx["a_real"]
             sigmas = self._sigmas(dev)
@@ -254,18 +279,22 @@ def model_class():
             chains, logps = [self._pack20(x)], []
             for i in range(steps):
                 v = self._velocity(ctx, x, sigmas[i]).float()
+                # every chain state is rounded to bf16 before it is scored: FSDP's mixed precision casts the stored
+                # chains to bf16 on their way into the actor's forward, and the replay must see the same values
                 if i == noise_idx:
                     idx = torch.full((b,), i, device=dev, dtype=torch.long)
                     mean, std = self._sde_step(x, v, sigmas, idx, a_real)
-                    x = mean + torch.randn_like(mean) * std
+                    x = (mean + torch.randn_like(mean) * std).to(torch.bfloat16).float()
                     lp = _logprob(x, mean, std)
                 else:
-                    x = x + (sigmas[i + 1] - sigmas[i]).float() * v
+                    x = (x + (sigmas[i + 1] - sigmas[i]).float() * v).to(torch.bfloat16).float()
                     lp = torch.zeros_like(x)
                 chains.append(self._pack20(x))
                 logps.append(self._pack20(lp))
             chains = torch.stack(chains, 1)  # [B, steps+1, T, 20]
-            logps = torch.stack(logps, 1)[:, :, : self.num_action_chunks]  # [B, steps, chunk, 20]
+            # Only the noisy step has a non-zero log-prob; return it summed over steps, [B, chunk, 20], so the actor
+            # uses its own fp32 copy (passed through the FSDP forward it would be cast to bf16).
+            logps = torch.stack(logps, 1)[:, :, : self.num_action_chunks].sum(1)
             if self.value_head is not None:
                 values = self._value(ctx)[:, None]
             else:
@@ -277,6 +306,7 @@ def model_class():
                 "forward_inputs": {
                     "chains": _zero_nonfinite(chains, "chains"),
                     "denoise_inds": denoise_inds,
+                    "rollout_batch_size": torch.full((b,), b, dtype=torch.long),
                     **{k: v for k, v in inputs.items() if torch.is_tensor(v)},
                 },
             }
@@ -308,15 +338,24 @@ def model_class():
             compute_entropy: bool = False,
             compute_values: bool = True,
             use_cache: bool = False,
-            prev_logprobs: torch.Tensor | None = None,
             **kwargs,
         ) -> dict[str, Any]:
             inputs = {k: v for k, v in forward_inputs.items() if k not in _RL_KEYS and torch.is_tensor(v)}
             inp = self.prepare_input(inputs)
             dtype = self.trunk.proj_in.weight.dtype
-            ctx = self._context(inp, dtype, detach_obs=bool(self.rl_config.get("detach_obs_kv", False)))
+            with _VaeOneFrame(self.config):
+                ctx = self._context(inp, dtype, detach_obs=bool(self.rl_config.get("detach_obs_kv", False)))
             ctx["state_flat"] = inp["wam_state"].reshape(ctx["b"], -1)
             b, dev = ctx["b"], ctx["dev"]
+            # GEMM kernels round by batch size: the replay reproduces the rollout's log-probs exactly only at the
+            # rollout's batch size (env batch per rollout worker); set actor.micro_batch_size to it.
+            rb = forward_inputs.get("rollout_batch_size")
+            if rb is not None and int(rb.reshape(-1)[0]) != b and not getattr(self, "_warned_rb", False):
+                from rlinf.utils.logging import get_logger
+
+                get_logger().warning(f"umi_wam: replay micro-batch {b} != rollout batch {int(rb.reshape(-1)[0])}; "
+                                     "log-ratios carry batch-size rounding (set actor.micro_batch_size to the rollout batch)")
+                self._warned_rb = True
             chains = forward_inputs["chains"].to(dev).float()
             idx = forward_inputs["denoise_inds"].to(dev)[:, 0].long()
             if (idx < 0).any():
@@ -329,8 +368,6 @@ def model_class():
             mean, std = self._sde_step(x_pre, v, sigmas, idx, ctx["a_real"])
             logprobs = self._pack20(_logprob(x_next, mean, std))[:, : self.num_action_chunks]
             out = {"logprobs": logprobs.float(), "entropy": None}
-            if prev_logprobs is not None:
-                out["prev_logprobs"] = prev_logprobs[rows.to(prev_logprobs.device), idx.to(prev_logprobs.device)].float()
             if compute_values and self.value_head is not None:
                 out["values"] = self._value(ctx)
             else:

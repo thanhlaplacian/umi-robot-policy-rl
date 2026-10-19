@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """W1 check: rollout then replay of the same chains with the same weights (one GPU, no Ray).
 
-* rollout: predict_action_batch(mode train) -> chains [B,5,16,20], prev_logprobs [B,4,16,20], prev_values [B,1];
+* rollout: predict_action_batch(mode train) -> chains [B,5,16,20], prev_logprobs [B,16,20] (the noisy step), prev_values [B,1];
 * replay: default_forward in train mode with grad -> exp(logprobs - prev_logprobs) must be 1 (within 1e-3);
 * a PPO-shaped loss backward: finite grads, timing and peak memory at the given micro-batch, with and without
   gradient checkpointing.
@@ -55,8 +55,8 @@ def main():
             model.train(); model.set_frozen_modules_to_eval_mode()
             model.zero_grad(set_to_none=True)
             torch.cuda.reset_peak_memory_stats(); torch.cuda.synchronize(); t0 = time.time()
-            out = model(forward_inputs=fi, compute_values=True, prev_logprobs=res["prev_logprobs"])
-            ratio = torch.exp(out["logprobs"] - out["prev_logprobs"])
+            out = model(forward_inputs=fi, compute_values=True)
+            ratio = torch.exp(out["logprobs"] - res["prev_logprobs"].to(out["logprobs"].device))
             adv = torch.randn(ratio.shape[0], device=ratio.device)
             loss = -(ratio.mean(dim=(1, 2)) * adv).mean() + ((out["values"] - 1.0) ** 2).mean()
             loss.backward()
@@ -67,7 +67,7 @@ def main():
             dev = float((ratio - 1).abs().max())
             vgap = float((out["values"].detach() - res["prev_values"][:, 0].to(out["values"].device)).abs().max())
             print(f"ckpt={ckpt} round {r}: denoise idx {idx}; actions {tuple(actions.shape)}; chains {tuple(fi['chains'].shape)}; "
-                  f"prev_logprobs {tuple(res['prev_logprobs'].shape)} (sum at idx {float(res['prev_logprobs'][:, idx].sum()):.1f}); "
+                  f"prev_logprobs {tuple(res['prev_logprobs'].shape)} (sum {float(res['prev_logprobs'].sum()):.1f}); "
                   f"max|ratio-1| {dev:.2e}; max|value replay-rollout| {vgap:.2e}; grads finite {grads_ok} ({n_grad} tensors); "
                   f"rollout {t_roll:.2f}s, replay+backward {t_upd:.2f}s, peak {peak:.1f} GiB", flush=True)
             ok &= dev < 1e-3 and grads_ok and bool(torch.isfinite(out["values"]).all())
