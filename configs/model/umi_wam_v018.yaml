@@ -1,0 +1,36 @@
+# UMICore v0.18 world-action model (backbone_version: wam, UmiWam): Cosmos3-Edge gen tower + frozen Wan VAE,
+# prompt as an und K/V cache row, 3 cameras at 224 x 320, 16 x 20 packed actions (R 0-9 | L 10-19), 4 Euler steps.
+# RLinf model config for model_type umi_wam (umi_rl/wam/policy.py); docs/PLAN_WAM.md.
+model_type: "umi_wam"
+precision: "bf16"
+is_lora: false
+
+model_path: /data/models/UMICore-v0.18.39/checkpoint-3000
+backbone_model_path: null       # unused (no VLM); kept so rollout.model interpolations resolve
+embodiment_tag: umi_bimanual_lpr1
+obs_converter_type: umi_bimanual
+# The shared caches under /data/models/wam_und_cache are mode 600 (owner ubuntu); this private cache holds
+# the three simulator prompts (scripts/wam_build_und_cache.py). null = the checkpoint's own und_cache_ref.json.
+wam_und_cache_dir: /home/thanh/models/wam_und_cache/v0203-sim-prompts
+required_prompts:
+  - "Pick up the objects on the shelf and place them in the basket"
+
+action_dim: 20          # packed R|L: rot6d(6)+xyz(3)+gripper(1) per arm
+num_action_chunks: 16   # 16 steps @ 15 fps, the deployment chunk
+denoising_steps: 4      # must equal the checkpoint's wam_infer_steps
+add_value_head: true
+
+rl_head_config:
+  joint_logprob: false
+  noise_method: flow_sde
+  noise_anneal: false
+  noise_params: [0.7, 0.3, 400]
+  noise_level: 0.5
+  # exploration comes from the flow-SDE noise only; never perturb the decoded metre-scale deltas
+  action_noise_scale: 0.0
+  add_value_head: true
+  detach_critic_input: true   # the critic reads the O hidden states without training the tower
+  detach_obs_kv: false        # true: the replay trains only the action path (no grad through the O pass)
+  disable_dropout: true
+  padding_value: 0
+num_steps: 4

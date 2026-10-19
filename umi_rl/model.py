@@ -253,3 +253,12 @@ def register() -> None:
 
 
 register()
+
+
+def _register_wam() -> None:
+    from umi_rl.wam import policy as _wam_policy
+
+    _wam_policy.register()
+
+
+_register_wam()
