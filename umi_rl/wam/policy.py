@@ -346,6 +346,9 @@ def model_class():
             inputs = data["inputs"] if hasattr(data, "keys") and "inputs" in data else data
             out = UmiWam.forward(self, dict(inputs.items()))
             self.last_sft_stats = {k: float(v) for k, v in out.items() if torch.is_tensor(v) and v.numel() == 1 and k != "loss"}
+            al, am = out.get("action_loss"), out.get("action_mask")
+            if torch.is_tensor(al) and torch.is_tensor(am):  # per-element in the fork's output; log the masked mean
+                self.last_sft_stats["action_loss"] = float(al.detach().float().sum() / am.float().sum().clamp_min(1.0))
             return out["loss"]
 
     _MODEL_CLS = UmiWamForRL
