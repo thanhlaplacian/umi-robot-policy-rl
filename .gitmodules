@@ -7,4 +7,4 @@
 [submodule "third_party/rlinf"]
 	path = third_party/rlinf
 	url = git@github.com:thanhlaplacian/RLinf.git
-	branch = umi-rl
+	branch = integration

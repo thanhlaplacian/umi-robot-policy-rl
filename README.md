@@ -7,7 +7,7 @@ Layout
 
 | Path | What | How it is tracked |
 |---|---|---|
-| `third_party/rlinf` | RLinf framework | git submodule, fork `thanhlaplacian/RLinf` branch `umi-rl` (upstream `a78b6d7` + the local fixes as commits on top) |
+| `third_party/rlinf` | RLinf framework | git submodule, fork `thanhlaplacian/RLinf` branch `integration` (upstream `a78b6d7` + the local fixes as commits on top) |
 | `third_party/umi-robot-policy` | company policy fork (model, processor, data SDK) | git submodule, pinned, never edited here |
 | `patches/umi-robot-policy/` | optional patches applied to the submodule at setup time | plain diff files |
 | `umi_rl/` | glue code: embodiment tag, obs/action converters, model config, tools | python package |

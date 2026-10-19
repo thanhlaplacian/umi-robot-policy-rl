@@ -194,7 +194,7 @@ for both tasks), or offline RL / AWR on the company's own LPR1 teleop data, befo
 
 ## RLinf bumped to upstream a78b6d7 (2026-10-19)
 
-`third_party/rlinf` is now a git submodule of the fork `thanhlaplacian/RLinf`, branch `umi-rl` = upstream
+`third_party/rlinf` is now a git submodule of the fork `thanhlaplacian/RLinf`, branch `integration` = upstream
 `a78b6d7` (2026-10-17, 65 commits past the vendored `ee2cab6`) with the 12 local commits rebased on top
 (two conflicts: the env registry and the N1.7 special-case list in the actor worker, where upstream added
 `PI0_FAST`). Checks on the new tree, same venv, no dependency changes needed:
