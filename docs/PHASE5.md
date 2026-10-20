@@ -10,6 +10,7 @@ Plan: [PLAN_WAM.md](PLAN_WAM.md). Model `/data/models/UMICore-v0.18.39/checkpoin
   simulator batches of 4 envs, same seed: **max |diff| 0.0** on the decoded 14-dim action (noise-to-noise spread
   1.7e-2 / 2.7e-2).
 - Baseline, strict rigid protocol (3 objects x 8 seeds per draw, boost gripper): see the table in W3.
+- Garment baseline, 8 seeds: **0/8**. One pad touches in 7/8 seeds, never two, so no garment run (plan W3.3).
 
 ## W1. RL surface on one GPU
 
@@ -54,4 +55,42 @@ approx_kl of ~0.018 at lr 0 (PHASE4 RLinf bump) is probably the same bf16 cast. 
 Exports `/home/thanh/models/umi-rl-wam018-rigid-step<N>`, evaluated by `~/rlinf-runs/tools/wam018_ckpt_pipeline.sh`
 (24 strict episodes per checkpoint on GPUs 0-3, PHASE4 draw rules).
 
-Results: pending.
+Training was stable for all 120 epochs: approx_kl 0.006-0.023, clip fraction 0.04-0.07, no non-finite
+step. The training success rate (noisy rollouts, 32 envs) averaged over 20-epoch blocks: 0.105, 0.138, 0.123,
+0.156, 0.174, 0.124.
+
+Strict eval (ROB-001 / ROB-003 / RTC-001, 8 seeds per object per draw):
+
+| checkpoint | ROB-001 | ROB-003 | RTC-001 | all |
+|---|---|---|---|---|
+| base v0.18.39@3000 | 2/24 | 8/24 | 19/24 | 29/72 |
+| step 10 | 5/24 | 5/24 | 14/24 | 24/72 |
+| step 20 | 4/24 | 7/24 | 13/24 | 24/72 |
+| step 30 | 5/24 | 7/24 | 14/24 | 26/72 |
+| step 40 | 3/24 | 7/24 | 12/24 | 22/72 |
+| step 50 | 2/8 | 2/8 | 2/8 | 6/24 (stop) |
+| step 60 | 3/24 | 9/24 | 12/24 | 24/72 |
+| step 70 | 5/24 | 7/24 | 12/24 | 24/72 |
+| step 80 | 4/24 | 9/24 | 11/24 | 24/72 |
+| step 90 | 4/24 | 6/24 | 15/24 | 25/72 |
+| step 100 | 5/24 | 7/24 | 9/24 | 21/72 |
+| step 110 | 1/8 | 1/8 | 3/8 | 5/24 (stop) |
+| step 120 | 5/24 | 9/24 | 12/24 | 26/72 |
+
+Headline, 144 episodes (seeds 0-47):
+
+| model | ROB-001 | ROB-003 | RTC-001 | all |
+|---|---|---|---|---|
+| WAM v0.18.39 base | 6/48 | 15/48 | 33/48 | **54/144** |
+| WAM RL step 30 (best at 72) | 11/48 | 17/48 | 25/48 | **53/144** |
+| v0.20.3 base (PHASE4) | | | | 33/144 |
+| v0.20.3 RL rigid_c step 60 (PHASE4) | | | | 51/144 |
+
+Conclusions:
+- PPO did not improve the WAM. No checkpoint beats the base at 72 episodes, and the best one ties it at 144.
+- RL moves success between objects: ROB-001 goes up (6/48 -> 11/48) and RTC-001 goes down (33/48 -> 25/48) at
+  every checkpoint. The base already solves RTC-001 most of the time, so RL loses there what it gains on
+  ROB-001.
+- Without RL the WAM (54/144) already matches v0.20.3 after its best RL checkpoint (51/144).
+- The training success rate rises from 0.11 to 0.17 by epoch 80-100 and the strict eval does not follow. That
+  gap is the noisy rollout (noise 0.3) against the deterministic eval policy, as in PHASE4.
